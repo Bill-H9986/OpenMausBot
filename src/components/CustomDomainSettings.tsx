@@ -10,7 +10,6 @@ export interface CustomDomainStatus {
   fallbackUrl: string | null;
   supported: boolean;
   appPort: number;
-  webhookPort: number;
   serverIpv4?: string | null;
 }
 
@@ -57,11 +56,8 @@ export function CustomDomainDnsRecord({ domain, serverIpv4 }: { domain: string; 
 }
 
 /** Security: a fixed placeholder, so a partially typed domain never becomes shell or Caddy configuration. */
-export function customDomainProxyExample(status: Pick<CustomDomainStatus, "appPort" | "webhookPort">): string {
+export function customDomainProxyExample(status: Pick<CustomDomainStatus, "appPort">): string {
   return `bots.example.com {
-    handle /hooks/* {
-        reverse_proxy 127.0.0.1:${status.webhookPort}
-    }
     handle {
         reverse_proxy 127.0.0.1:${status.appPort} {
             flush_interval -1

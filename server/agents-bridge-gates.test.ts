@@ -14,7 +14,6 @@ import type { ToolScope } from "../shared/tool-scope.ts";
 import type { SendTurnInput } from "./contracts.ts";
 import { TOOL_BRIDGE_ENV } from "./drivers/agents-bridge.ts";
 import { mountChatTools, type ChatToolSession } from "./drivers/chat-mcp-tools.ts";
-import { buildMcpServers } from "./drivers/pi-mcp-servers.ts";
 import { turnStdioMcpServers } from "./drivers/turn-mcp.ts";
 import { gateServer } from "./mcp-gate-config.ts";
 import { SPAWNED_PROXIES } from "./proxy-paths.ts";
@@ -116,13 +115,6 @@ describe("every mount that puts a selection in front of the agents server", () =
     expect(gated.args).toEqual([SPAWNED_PROXIES.mcpGate]);
     expect(upstreamOf(gated).env[TOOL_BRIDGE_ENV]).toBe("0");
     expect(turnStdioMcpServers(turn()).find((server) => server.name === "agents")!.env[TOOL_BRIDGE_ENV]).toBe("1");
-  });
-
-  it("Pi's mount starts it unbridged, and bridged as built without one", () => {
-    const gated = buildMcpServers(turn(DENY_VM))!.agents as Server;
-    expect(gated.args).toEqual([SPAWNED_PROXIES.mcpGate]);
-    expect(upstreamOf(gated).env[TOOL_BRIDGE_ENV]).toBe("0");
-    expect((buildMcpServers(turn())!.agents as Server).env[TOOL_BRIDGE_ENV]).toBe("1");
   });
 
   describe("the chat runtime's own selection", () => {

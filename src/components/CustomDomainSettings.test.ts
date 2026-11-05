@@ -9,7 +9,7 @@ const status: CustomDomainStatus = {
   fallbackUrl: "https://old.example.com",
   supported: true,
   appPort: 23456,
-  webhookPort: 23457,
+  
   serverIpv4: "8.8.8.8",
 };
 
@@ -17,8 +17,6 @@ describe("custom domain setup guidance", () => {
   it("uses this server's ports and leaves both app and hooks on loopback", () => {
     const config = customDomainProxyExample(status);
     expect(config).toContain("reverse_proxy 127.0.0.1:23456");
-    expect(config).toContain("reverse_proxy 127.0.0.1:23457");
-    expect(config).toContain("handle /hooks/*");
     expect(config).toContain("flush_interval -1");
     expect(config).not.toContain("0.0.0.0");
   });

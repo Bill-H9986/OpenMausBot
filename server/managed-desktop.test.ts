@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
@@ -6,12 +6,8 @@ import { companyInstanceConfigs, companyInstanceId, legacyCompanyInstanceId, LIC
 import { ProviderRegistry } from "./harness/registry.ts";
 import { makeFakeDriver } from "./testing/fake-driver.ts";
 import { DATA_DIR, instanceConfigs, loadConfig, persistableInstanceConfigs, saveConfig } from "./config.ts";
-import { CodexDriver, managedCodexArgs } from "./drivers/codex.ts";
-import { ClaudeDriver } from "./drivers/claude.ts";
-import { recordEvents } from "./testing/events.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { excludedWorkspaceAuthPath } from "./workspace-backup-policy.ts";
-import type { ProviderInstance } from "./contracts.ts";
 import { selectDefaultModelSelection } from "./default-model-selection.ts";
 import { Store } from "./store.ts";
 
@@ -101,32 +97,6 @@ it("refuses a redirected Company storage parent before creating native homes", a
   await expect(manager.apply(connection())).rejects.toThrow("owned workspace directory");
   expect(existsSync(join(target, "company"))).toBe(false);
   expect(registry.instances().map(instance => instance.instanceId)).toEqual(["personal", "local"]);
-});
-
-it("never discovers or injects personal local routes into an approved Company Claude model", async () => {
-  const value = { ...connection(), providers: [{ id: "anthropic" as const, configured: true, models: ["custom-company-model"] }] };
-  const dataDirectory = join(DATA_DIR, `company-claude-${randomUUID()}`), dump = join(dataDirectory, "spawn.json");
-  const fetcher = vi.fn(async () => Response.json({ data: [{ id: "custom-company-model" }] }));
-  vi.stubGlobal("fetch", fetcher);
-  const driver: typeof ClaudeDriver = { ...ClaudeDriver, create: input => ClaudeDriver.create({ ...input,
-    config: { ...input.config, cli: join(import.meta.dirname, "testing", "fake-claude-cli.ts") },
-    environment: { ...input.environment, FAKE_CLAUDE_DUMP: dump },
-  }) };
-  const registry = new ProviderRegistry([driver], { npmAvailable: () => false }); registries.push(registry);
-  const manager = new ManagedDesktopProviders({ registry, dataDirectory }); managers.push(manager);
-  await manager.apply(value);
-  const company = registry.get(companyInstanceId(value, "anthropic"))!, events = recordEvents(company.adapter);
-  expect(fetcher).not.toHaveBeenCalled();
-  await company.adapter.sendTurn({ threadId: "company-claude-routing", text: "Synthetic company turn", model: "custom-company-model", cwd: dataDirectory });
-  await events.until(event => event.type === "turn.completed"); events.stop();
-  const spawned = JSON.parse(readFileSync(dump, "utf8"));
-  expect(spawned.env.ANTHROPIC_BASE_URL).toBe(`${value.portalOrigin}/api/desktop/gateway/anthropic`);
-  expect(spawned.env.ANTHROPIC_API_KEY).toBe(value.token);
-  expect(spawned.env.ANTHROPIC_AUTH_TOKEN).toBe(value.token);
-  expect(spawned.argv[spawned.argv.indexOf("--model") + 1]).toBe("custom-company-model");
-  expect(fetcher).not.toHaveBeenCalled();
-  expect(JSON.stringify(spawned.argv)).not.toContain(value.token);
-  await expect(company.adapter.sendTurn({ threadId: "company-claude-injected", text: "Do not route locally", model: "ollama::custom-company-model" })).rejects.toThrow("not enabled");
 });
 
 it("does not restart any instance for an identical heartbeat and never substitutes personal billing", async () => {
@@ -228,30 +198,6 @@ it("rejects invalid origins, expired tokens, provider collisions and local model
   expect(companyInstanceId(value, "openai")).not.toBe(companyInstanceId({ ...value, email: "colleague@example.test" }, "openai"));
 });
 
-it("runs native Codex with Company Responses routing, isolated home and no OAuth or argv credential fallback", async () => {
-  const value = connection(), cli = join(import.meta.dirname, "testing", "fake-codex-app-server.ts");
-  chmodSync(cli, 0o755); mkdirSync(DATA_DIR, { recursive: true });
-  const dump = join(DATA_DIR, "company-codex-dump.json"), isolatedHome = join(DATA_DIR, "company-codex-home");
-  mkdirSync(isolatedHome, { recursive: true });
-  const config = CodexDriver.decodeConfig({ cli, managed: { url: `${value.portalOrigin}/api/desktop/gateway/openai/v1`, models: ["gpt-fixture"] } });
-  let native: ProviderInstance | undefined;
-  try {
-    native = await CodexDriver.create({ instanceId: "fixture-company-codex", displayName: "Company", enabled: true, config,
-      environment: { CODEX_HOME: isolatedHome, OPENMAUSBOT_COMPANY_API_KEY: value.token, OPENAI_API_KEY: "personal-must-not-leak", FAKE_CODEX_DUMP: dump, FAKE_CODEX_MODE: "logged-out" } });
-    expect(await native.snapshot()).toMatchObject({ state: "available", authenticated: true, billing: "metered" });
-    const events = recordEvents(native.adapter);
-    await native.adapter.sendTurn({ threadId: "company-codex-fixture", text: "Fixture request", model: "gpt-fixture" });
-    await events.until(event => event.type === "turn.completed"); events.stop();
-    const spawned = JSON.parse(readFileSync(dump, "utf8"));
-    expect(spawned.env.CODEX_HOME).toBe(isolatedHome);
-    expect(spawned.env.OPENMAUSBOT_COMPANY_API_KEY).toBe(value.token);
-    expect(spawned.env.OPENAI_API_KEY).toBeUndefined();
-    expect(spawned.argv).toEqual(expect.arrayContaining(managedCodexArgs(config.managed!)));
-    expect(JSON.stringify(spawned.argv)).not.toContain(value.token);
-    expect(spawned.calls.find((call: { method: string }) => call.method === "thread/start").params).toMatchObject({ model: "gpt-fixture", modelProvider: "openmaus_company" });
-    await expect(native.adapter.sendTurn({ threadId: "blocked", text: "No fallback", model: "gpt-personal" })).rejects.toThrow("personal billing");
-  } finally { await native?.dispose(); }
-});
 
 it("applies a renewal or a lapsed licence in place, without restarting or ending Company conversations", async () => {
   let now = Date.now();

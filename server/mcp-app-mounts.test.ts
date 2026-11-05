@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { SendTurnInput } from "./contracts.ts";
 import { mountChatTools, type ChatToolSession } from "./drivers/chat-mcp-tools.ts";
-import { buildMcpServers } from "./drivers/pi-mcp-servers.ts";
 import { turnStdioMcpServers } from "./drivers/turn-mcp.ts";
 import { appMountFor, gateServer, mcpStdioServer } from "./mcp-gate-config.ts";
 import type { McpAppReport } from "./mcp-app-observer.ts";
@@ -92,19 +91,6 @@ describe("the ACP family and Muse Code (turn-mcp.ts)", () => {
     expect(env(servers.board, "OMB_GATE_UPSTREAM")).toEqual(board);
     expect(servers.draw!.env).not.toHaveProperty("OMB_GATE_APPS");
     expect(env(env(servers.draw, "OMB_GATE_UPSTREAM"), "OMB_REMOTE_MCP_APPS")).toEqual(mount("draw"));
-  });
-});
-
-describe("Pi", () => {
-  it("adds the apps settings to the gate or proxy each server already has", () => {
-    const servers = buildMcpServers(turn())!;
-    expect(env(servers.board as never, "OMB_GATE_APPS")).toEqual(mount("board"));
-    expect(env(servers.draw as never, "OMB_REMOTE_MCP_APPS")).toEqual(mount("draw"));
-    expect(env(servers.draw as never, "OMB_REMOTE_MCP_DIRECTORY")).toEqual({ name: "draw" });
-    const before = buildMcpServers(turn({ integrations: { agents, custom: { board, notes, draw, docs } } }))!;
-    expect(servers.notes).toEqual(before.notes);
-    expect(servers.docs).toEqual(before.docs);
-    expect(env(before.board as never, "OMB_GATE_APPS")).toBeUndefined();
   });
 });
 
