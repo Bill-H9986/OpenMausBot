@@ -15,10 +15,12 @@ supportedArchitectures:
 allowBuilds:
   electron: true # postinstall downloads the Electron dist
   esbuild: true # postinstall validates the platform binary
+  koffi: true # install script builds the koffi .node prebuild (embedded dsh runtime)
   electron-winstaller: false # unused — Windows builds ship NSIS
 onlyBuiltDependencies:
   - electron
   - esbuild
+  - koffi
 # Transitive packages whose parents still allow a release with a published advisory: mermaid allows an older dompurify
 # and ajv an older fast-uri. Force the patched releases.
 overrides:
