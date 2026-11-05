@@ -24,15 +24,16 @@
 // stay readable; resolveTurnModel turns them into dsh's wire pair just before
 // the core selects the model.
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 
 import type { ModelCatalog } from "../../contracts.ts";
 import { harnessHome } from "../../env-path.ts";
-import { resolveCli } from "../../procs.ts";
+import { execCli, resolveCli } from "../../procs.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
+import { versionFromProbe } from "./version-probe.ts";
 
 export const DEEPSEEK_MODELS: ModelCatalog = {
   default: "deepseek-official/deepseek-v4-flash",
@@ -181,6 +182,39 @@ function catalogTimeoutMs(env: Record<string, string | undefined>): number {
   return Number.isInteger(parsed) && parsed > 0 && parsed <= 2_147_483_647 ? parsed : DEEPSEEK_MODELS_DEFAULT_TIMEOUT_MS;
 }
 
+/** The packaged app ships dsh's runtime under <resources>/dsh and runs its entry under the
+ * app's own executable as Node, the DSH desktop installer's launcher pattern
+ * (ELECTRON_RUN_AS_NODE), so a global `dsh` install is not required. Plain-node
+ * processes have no resourcesPath and keep using the CLI on PATH. Security:
+ * the bot box's environment allowlist passes ELECTRON_RUN_AS_NODE to engine
+ * spawns, so the flag survives the box boundary. */
+const DSH_BUNDLED_ENTRY = ["dsh", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"].join("/");
+
+/** The bundled dsh entry this install ships, or null (dev, plain node, or an
+ * install without the runtime). */
+export function bundledDshEntry(): string | null {
+  const resources = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  if (!resources) return null;
+  const entry = join(resources, DSH_BUNDLED_ENTRY);
+  return existsSync(entry) ? entry : null;
+}
+
+/** One dsh invocation: the shipped runtime under the app's executable when the
+ * effective CLI is the plain `dsh` name, otherwise the CLI resolved on PATH.
+ * A user's custom CLI is never replaced. */
+export function dshLaunch(
+  cli: string,
+  env: Record<string, string | undefined>,
+  args: string[],
+): { command: string; args: string[]; env?: Record<string, string | undefined> } {
+  const entry = bundledDshEntry();
+  if (entry && cli === "dsh") {
+    return { command: process.execPath, args: [entry, ...args], env: { ...env, ELECTRON_RUN_AS_NODE: "1" } };
+  }
+  const resolved = resolveCli(cli, args, env);
+  return { command: resolved.command, args: resolved.args };
+}
+
 /** Ask the installed dsh what it offers: initialize, session/new in `cwd`,
  * read the catalog, session/close. Rejects on any failure so the core keeps
  * the last usable catalog; never resolves to an empty or guessed list. */
@@ -192,8 +226,8 @@ export function fetchDeepSeekCatalog(
   return new Promise((resolve, reject) => {
     let child: ReturnType<typeof spawn>;
     try {
-      const resolved = resolveCli(cli, ["--profile", "acp"], env);
-      child = spawn(resolved.command, resolved.args, { stdio: ["pipe", "pipe", "ignore"], env: env as NodeJS.ProcessEnv, windowsHide: true });
+      const launch = dshLaunch(cli, env, ["--profile", "acp"]);
+      child = spawn(launch.command, launch.args, { stdio: ["pipe", "pipe", "ignore"], env: (launch.env ?? env) as NodeJS.ProcessEnv, windowsHide: true });
     } catch (error) {
       return reject(error instanceof Error ? error : new Error(String(error)));
     }
@@ -303,6 +337,29 @@ export const deepseekSupport: AcpSupport = {
   },
 
   spawnArgs: () => ["--profile", "acp"],
+  /** The shipped runtime under the app's own executable when this install
+   * carries one, else the PATH resolution; a custom CLI override is honored
+   * as is. */
+  resolveCommand: async (env, config) => dshLaunch(config.cli, env, []),
+  /** Probe the effective dsh through the same launch contract, since a
+   * packaged runtime is not on the CLI's PATH. */
+  snapshot: async (env, config) => {
+    const launch = dshLaunch(config.cli, env, ["--version"]);
+    const probed = await new Promise<{ version?: string; reason?: string }>((done) => {
+      execCli(launch.command, launch.args, { timeout: 8_000, env: launch.env ?? env }, (error, stdout, stderr) => {
+        if (error) {
+          done({ reason: (error as NodeJS.ErrnoException).code === "ENOENT"
+            ? "No dsh runtime was found. Reinstall OpenMausBot, or install dsh on PATH."
+            : "The dsh version check failed. Run `dsh --version` in a terminal to diagnose." });
+          return;
+        }
+        const version = versionFromProbe(stdout, stderr);
+        done(version ? { version } : { reason: "dsh answered no version. Run `dsh --version` in a terminal to diagnose." });
+      });
+    });
+    if (!probed.version) return { state: "unavailable", reason: probed.reason };
+    return { state: "available", version: probed.version, authenticated: hasDeepSeekKey(env) };
+  },
   credentialEnv: ["DEEPSEEK_API_KEY"],
   // Model and reasoning effort are session config options (see header).
   selectModel: { configId: "model" },
