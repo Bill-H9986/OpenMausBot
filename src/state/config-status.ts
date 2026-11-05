@@ -18,6 +18,7 @@ export interface ConfigStatus {
   groq?: SavedKey;
   greenference?: SavedKey;
   deepseek?: SavedKey & { baseUrl?: string };
+  customOpenAI?: SavedKey & { baseUrl?: string; models?: string[] };
   meta?: SavedKey;
   /** X research comes with MausBot Cloud plans: `included` while this server holds the plan's relay credential;
    * `unavailable` when the Admin said no to this desktop's paid sign-in. */

@@ -12,6 +12,12 @@
 //     Anthropic Messages-compatible API (default https://api.deepseek.com/anthropic);
 //     the config's baseUrl reaches it that way, so OpenMausBot passes it through
 //     the launch environment. Verified in 0.2.1-rc.5.
+//   - BYOM OpenAI-compatible endpoints ride a different route: the custom
+//     OpenAI provider block (llm-pi-ai.providers) of the active profile's
+//     legacy settings.yaml, which dsh 0.2.1-rc.5 imports into the profile on
+//     launch and renames. OpenMausBot rewrites that file before every spawn
+//     (deepseek-settings.ts); its apiKeyEnv names the key's env var, never
+//     the key's value.
 //   - session/new advertises two config options: `model` (category "model",
 //     values are JSON pairs such as ["deepseek-official","deepseek-v4-flash"],
 //     grouped per provider) and `reasoning_effort` (category "thought_level":
@@ -38,6 +44,7 @@ import { harnessHome } from "../../env-path.ts";
 import { execCli, resolveCli } from "../../procs.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
 import { versionFromProbe } from "./version-probe.ts";
+import { CUSTOM_OPENAI_API_KEY_ENV, ensureCustomOpenAIProvider } from "./deepseek-settings.ts";
 
 export const DEEPSEEK_MODELS: ModelCatalog = {
   default: "deepseek-official/deepseek-v4-flash",
@@ -228,6 +235,7 @@ export function fetchDeepSeekCatalog(
   cwd: string,
 ): Promise<ModelCatalog> {
   return new Promise((resolve, reject) => {
+    ensureCustomOpenAIProvider(env, dshHome(env));
     let child: ReturnType<typeof spawn>;
     try {
       const launch = dshLaunch(cli, env, ["--profile", "acp"]);
@@ -344,7 +352,10 @@ export const deepseekSupport: AcpSupport = {
   /** The shipped runtime under the app's own executable when this install
    * carries one, else the PATH resolution; a custom CLI override is honored
    * as is. */
-  resolveCommand: async (env, config) => dshLaunch(config.cli, env, []),
+  resolveCommand: async (env, config) => {
+    ensureCustomOpenAIProvider(env, dshHome(env));
+    return dshLaunch(config.cli, env, []);
+  },
   /** Probe the effective dsh through the same launch contract, since a
    * packaged runtime is not on the CLI's PATH. */
   snapshot: async (env, config) => {
@@ -364,7 +375,7 @@ export const deepseekSupport: AcpSupport = {
     if (!probed.version) return { state: "unavailable", reason: probed.reason };
     return { state: "available", version: probed.version, authenticated: hasDeepSeekKey(env) };
   },
-  credentialEnv: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"],
+  credentialEnv: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", CUSTOM_OPENAI_API_KEY_ENV],
   // Model and reasoning effort are session config options (see header).
   selectModel: { configId: "model" },
   modelVariants: true,

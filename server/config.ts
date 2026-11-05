@@ -340,6 +340,8 @@ const appConfigSchema = z.object({
   greenference: z.object({ key: optionalText }).optional(),
   meta: z.object({ key: optionalText, url: optionalText }).optional(),
   deepseek: z.object({ key: optionalText, baseUrl: optionalText }).optional(),
+  /** Self-hosted or third-party OpenAI-compatible endpoint served through the DeepSeek Harness (llm-pi-ai provider). */
+  customOpenAI: z.object({ baseUrl: optionalText, apiKey: optionalText, models: z.array(z.string()).optional() }).optional(),
   xai: z.object({ key: optionalText, url: optionalText }).optional(),
   /** Anthropic API key for Claude Code billed per token; `url` is for a proxy or test double. Never a login OAuth token. */
   anthropic: z.object({ key: optionalText, url: optionalText, everyClaudeBot: z.boolean().optional() }).optional(),
@@ -491,6 +493,7 @@ export interface AppConfig extends HelperConfig {
   meta?: { key?: string; url?: string };
   /** DeepSeek API key for the DeepSeek Harness engine (`dsh`). */
   deepseek?: { key?: string; baseUrl?: string };
+  customOpenAI?: { baseUrl?: string; apiKey?: string; models?: string[] };
   /** `everyClaudeBot`: the key runs every Claude bot instead of its login; unset means true. */
   anthropic?: { key?: string; url?: string; everyClaudeBot?: boolean };
   openai?: { key?: string };
@@ -1163,6 +1166,9 @@ function injectedEnvironment(cfg: AppConfig, instanceId: string, driver: string)
   if (driver === "meta" && cfg.meta?.key) environment.set("META_API_KEY", cfg.meta.key);
   if (driver === "deepseekAgent" && cfg.deepseek?.key) environment.set("DEEPSEEK_API_KEY", cfg.deepseek.key);
   if (driver === "deepseekAgent" && cfg.deepseek?.baseUrl) environment.set("DEEPSEEK_BASE_URL", cfg.deepseek.baseUrl);
+  if (driver === "deepseekAgent" && cfg.customOpenAI?.apiKey) environment.set("CUSTOM_OPENAI_API_KEY", cfg.customOpenAI.apiKey);
+  if (driver === "deepseekAgent" && cfg.customOpenAI?.baseUrl) environment.set("CUSTOM_OPENAI_BASE_URL", cfg.customOpenAI.baseUrl);
+  if (driver === "deepseekAgent" && cfg.customOpenAI?.models?.length) environment.set("CUSTOM_OPENAI_MODELS", JSON.stringify(cfg.customOpenAI.models));
   if (driver === "grok" && cfg.xai?.key) environment.set("XAI_API_KEY", cfg.xai.key);
   if (driver === "claudeAgent") for (const [name, value] of Object.entries(anthropicKeyEnv(cfg.anthropic, instanceId === CLAUDE_API_INSTANCE))) environment.set(name, value);
   if (driver === "openai-compat" && instanceId === OPENAI_API_INSTANCE) {

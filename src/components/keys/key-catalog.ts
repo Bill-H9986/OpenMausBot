@@ -39,7 +39,7 @@ export interface KeyTarget {
 }
 
 export type KeyId =
-  | "openai" | "anthropic" | "xai" | "openrouter" | "mistral" | "cerebras" | "groq" | "greenference" | "meta" | "deepseek" | "opencodeGo" | "opencodeProviders"
+  | "openai" | "anthropic" | "xai" | "openrouter" | "mistral" | "cerebras" | "groq" | "greenference" | "meta" | "deepseek" | "customOpenAI" | "opencodeGo" | "opencodeProviders"
   | "lmStudio" | "openaiCompat" | "liveCalls" | "liveKey" | "elevenlabs" | "fishAudio" | "box" | "vps" | "onePassword" | "composio" | "treg" | "postiz"
   | "jev" | "openrouterHelper" | "workersAi" | "imageOpenai" | "imageCustom";
 
@@ -107,6 +107,11 @@ export const KEY_CATALOG: readonly KeyEntry[] = [
   { id: "deepseek", section: "ai", labelKey: "keys.deepseek.label", purposeKey: "keys.purpose.deepseek", name: "DeepSeek", env: ["OMB_DEEPSEEK_API_KEY"],
     words: ["deepseek", "dsh", "harness"], mark: provider("deepseekAgent", "deepseek"), kind: "key",
     target: providerKey("deepseek", { placeholder: "sk-…", href: "https://platform.deepseek.com/api_keys", analytics: "deepseek" }) },
+
+  { id: "customOpenAI", section: "ai", labelKey: "keys.customOpenAI.label", purposeKey: "keys.purpose.customOpenAI", name: "Custom OpenAI", env: ["CUSTOM_OPENAI_API_KEY"],
+    words: ["openai", "openai compatible", "custom", "byom", "zhipu", "kimi", "glm", "moonshot", "ollama", "base url"],
+    mark: provider("deepseekAgent"), kind: "panel",
+    status: (config) => ({ configured: config.customOpenAI?.configured === true || Boolean(config.customOpenAI?.baseUrl) }) },
   { id: "opencodeGo", section: "ai", labelKey: "keys.opencode.label", purposeKey: "keys.purpose.opencodeGo", name: "OpenCode", env: ["OPENCODE_API_KEY"],
     words: ["opencode", "zen", "go"], mark: provider("opencodeGo"), kind: "key",
     target: { patch: (value) => ({ opencodeGo: { apiKey: value } }), slot: "opencodeGoApiKey", saved: (config) => flag(config.opencodeGo),

@@ -143,7 +143,7 @@ describe("DeepSeek ACP support", () => {
     expect(deepseekSupport.modelVariants).toBe(true);
     expect(deepseekSupport.resumeMethod).toBe("resume");
     expect(deepseekSupport.resolveModelsOnCreate).toBe(false);
-    expect(deepseekSupport.credentialEnv).toEqual(["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"]);
+    expect(deepseekSupport.credentialEnv).toEqual(["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "CUSTOM_OPENAI_API_KEY"]);
     expect(deepseekSupport.authFailure).toBe("continue");
     expect(deepseekSupport.pickAuthMethod([], {})).toBeNull();
     expect(deepseekSupport.install?.command?.darwin).toBe("npm install -g @deepseek-ai/dsh");

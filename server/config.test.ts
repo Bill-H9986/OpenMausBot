@@ -889,6 +889,24 @@ describe("default fleet", () => {
     expect(map.deepseekOwn.environment).toEqual({ DEEPSEEK_API_KEY: "ds-own", DEEPSEEK_BASE_URL: "https://own.example.test/anthropic" });
   });
 
+  it("injects the custom OpenAI endpoint into deepseekAgent instances only", () => {
+    const cfg: AppConfig = { customOpenAI: { baseUrl: "https://v4.example.test", apiKey: "ck-1", models: ["glm-4"] }, instances: {
+      codex: { driver: "codex" },
+      deepseek: { driver: "deepseekAgent" },
+    } };
+    const map = instanceConfigs(cfg);
+    expect(map.deepseek).toEqual({
+      driver: "deepseekAgent",
+      environment: {
+        CUSTOM_OPENAI_API_KEY: "ck-1",
+        CUSTOM_OPENAI_BASE_URL: "https://v4.example.test",
+        CUSTOM_OPENAI_MODELS: "[\"glm-4\"]",
+      },
+    });
+    expect(map.codex?.environment).toEqual({});
+    expect(parseConfigPatch({ customOpenAI: { baseUrl: "", apiKey: "", models: [] } })).toEqual({ customOpenAI: { baseUrl: "", apiKey: "", models: [] } });
+  });
+
   it("accepts clearing a DeepSeek key and removes it from child environments", () => {
     expect(parseConfigPatch({ deepseek: { key: "" } })).toEqual({ deepseek: { key: "" } });
     expect(parseConfigPatch({ deepseek: { baseUrl: "" } })).toEqual({ deepseek: { baseUrl: "" } });

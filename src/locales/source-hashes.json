@@ -34429,7 +34429,14 @@
       "composer.queued.seePlans": "d989893356eeff0f22804648f79ee465c509800917fe8d64ec31ab5aa6557220",
       "settings.threads.starter": "8837e4531b35bb772dcbdd6067cf3a494bca815a6620e7319bd01d9af0e1574f",
       "keys.deepseek.baseUrl": "5226e593cc0b182274fd691780f14e46bcd300f7f6c8631291859cac098b875b",
-      "keys.deepseek.baseUrlHint": "f519a48d440f7ddfd1603bbc1412f0d07f372d35bce105249fe823e240e4f28b"
+      "keys.deepseek.baseUrlHint": "f519a48d440f7ddfd1603bbc1412f0d07f372d35bce105249fe823e240e4f28b",
+      "keys.customOpenAI.label": "7eab6c328d7fa5bc45385252e5ebf042698b4e4f903a2930261fca56c9ad11da",
+      "keys.customOpenAI.baseUrl": "2578179d177903e11cb62888319a525cb0885cbdc0a4773df4c0c7f01456518d",
+      "keys.customOpenAI.baseUrlHint": "e9a60ef38ab5ae9d39896f6e057f774f4e9f8f1841d55f029dc439ef0ff2b018",
+      "keys.customOpenAI.apiKey": "16f0ee47f993d6270c9059450473eea493ca8ae037f8877782ae2bc176f24d18",
+      "keys.customOpenAI.models": "045734cf7a6d2e9b954c589419867e5c384fc199b7db36ef2dd2b969c6f242b7",
+      "keys.customOpenAI.modelsHint": "e6d174c2933635293f5856e33b42a45d547bfaf55e546918e0b74b2c70000b99",
+      "keys.purpose.customOpenAI": "582fcc88b94964be50bdcae0561d879f4da553f14ba76ff853ca03b84cfa5697"
     },
     "zh-tw": {
       "whop.description": "1a07cf04ef17029448d3781415cbac16d54e66b821907a40d94e0e6349710e70",
