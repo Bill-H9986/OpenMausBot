@@ -27,7 +27,7 @@
     "check:contrast": "node scripts/check-skin-contrast.mjs",
     "i18n:check": "node scripts/generate-locale.mjs --check",
     "dev": "vite",
-    "dev:all": "concurrently -n server,web -c blue,magenta \"pnpm dev:server\" \"pnpm dev\"",
+    "dev:all": "concurrently -n server,web -c blue,magenta \"node --experimental-strip-types server/dev-server.ts\" \"vite\"",
     "docs:dev": "pnpm --filter @openmausbot/docs dev",
     "docs:build": "pnpm --filter @openmausbot/docs build",
     "docs:preview": "pnpm --filter @openmausbot/docs preview",
