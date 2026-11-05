@@ -3616,6 +3616,8 @@
   "keys.deepseek.label": "DeepSeek API key",
   "keys.deepseek.desc": "For DeepSeek Harness, billed to your DeepSeek account. If dsh already has a DeepSeek key saved in its own settings, it uses that one instead of this.",
   "keys.deepseek.link": "DeepSeek API keys",
+  "keys.deepseek.baseUrl": "DeepSeek endpoint",
+  "keys.deepseek.baseUrlHint": "An Anthropic Messages-compatible endpoint (default https://api.deepseek.com/anthropic).",
   "keys.xai.label": "xAI API key",
   "keys.xai.desc": "For xAI's Grok models and xAI image generation.",
   "keys.xai.link": "xAI console",

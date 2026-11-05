@@ -339,7 +339,7 @@ const appConfigSchema = z.object({
   groq: z.object({ key: optionalText, url: optionalText }).optional(),
   greenference: z.object({ key: optionalText }).optional(),
   meta: z.object({ key: optionalText, url: optionalText }).optional(),
-  deepseek: z.object({ key: optionalText }).optional(),
+  deepseek: z.object({ key: optionalText, baseUrl: optionalText }).optional(),
   xai: z.object({ key: optionalText, url: optionalText }).optional(),
   /** Anthropic API key for Claude Code billed per token; `url` is for a proxy or test double. Never a login OAuth token. */
   anthropic: z.object({ key: optionalText, url: optionalText, everyClaudeBot: z.boolean().optional() }).optional(),
@@ -490,7 +490,7 @@ export interface AppConfig extends HelperConfig {
   greenference?: { key?: string };
   meta?: { key?: string; url?: string };
   /** DeepSeek API key for the DeepSeek Harness engine (`dsh`). */
-  deepseek?: { key?: string };
+  deepseek?: { key?: string; baseUrl?: string };
   /** `everyClaudeBot`: the key runs every Claude bot instead of its login; unset means true. */
   anthropic?: { key?: string; url?: string; everyClaudeBot?: boolean };
   openai?: { key?: string };
@@ -1162,6 +1162,7 @@ function injectedEnvironment(cfg: AppConfig, instanceId: string, driver: string)
   if (driver === "greenference" && cfg.greenference?.key) environment.set("GREENFERENCE_API_KEY", cfg.greenference.key);
   if (driver === "meta" && cfg.meta?.key) environment.set("META_API_KEY", cfg.meta.key);
   if (driver === "deepseekAgent" && cfg.deepseek?.key) environment.set("DEEPSEEK_API_KEY", cfg.deepseek.key);
+  if (driver === "deepseekAgent" && cfg.deepseek?.baseUrl) environment.set("DEEPSEEK_BASE_URL", cfg.deepseek.baseUrl);
   if (driver === "grok" && cfg.xai?.key) environment.set("XAI_API_KEY", cfg.xai.key);
   if (driver === "claudeAgent") for (const [name, value] of Object.entries(anthropicKeyEnv(cfg.anthropic, instanceId === CLAUDE_API_INSTANCE))) environment.set(name, value);
   if (driver === "openai-compat" && instanceId === OPENAI_API_INSTANCE) {

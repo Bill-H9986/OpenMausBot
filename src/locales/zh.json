@@ -3570,6 +3570,8 @@
   "keys.deepseek.label": "DeepSeek API 密钥",
   "keys.deepseek.desc": "用于 DeepSeek Harness，费用计入你的 DeepSeek 账户。如果 dsh 自己的设置中已保存 DeepSeek 密钥，它会使用那把密钥，而不用这里填的。",
   "keys.deepseek.link": "DeepSeek API 密钥页面",
+  "keys.deepseek.baseUrl": "DeepSeek 端点",
+  "keys.deepseek.baseUrlHint": "Anthropic Messages 兼容端点（默认 https://api.deepseek.com/anthropic）",
   "keys.xai.label": "xAI API 密钥",
   "keys.xai.desc": "用于 xAI 的 Grok 模型与 xAI 图像生成。",
   "keys.xai.link": "xAI 管理后台",

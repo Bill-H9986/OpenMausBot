@@ -8,6 +8,10 @@
 //     $DSH_HOME/.credentials.yaml), promptCapabilities.image false,
 //     sessionCapabilities {close, list, resume} — resume is session/resume,
 //     there is no session/load.
+//   - The DeepSeek adapter takes its endpoint from $DEEPSEEK_BASE_URL, an
+//     Anthropic Messages-compatible API (default https://api.deepseek.com/anthropic);
+//     the config's baseUrl reaches it that way, so OpenMausBot passes it through
+//     the launch environment. Verified in 0.2.1-rc.5.
 //   - session/new advertises two config options: `model` (category "model",
 //     values are JSON pairs such as ["deepseek-official","deepseek-v4-flash"],
 //     grouped per provider) and `reasoning_effort` (category "thought_level":
@@ -360,7 +364,7 @@ export const deepseekSupport: AcpSupport = {
     if (!probed.version) return { state: "unavailable", reason: probed.reason };
     return { state: "available", version: probed.version, authenticated: hasDeepSeekKey(env) };
   },
-  credentialEnv: ["DEEPSEEK_API_KEY"],
+  credentialEnv: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"],
   // Model and reasoning effort are session config options (see header).
   selectModel: { configId: "model" },
   modelVariants: true,

@@ -17,7 +17,7 @@ export interface ConfigStatus {
   cerebras?: SavedKey;
   groq?: SavedKey;
   greenference?: SavedKey;
-  deepseek?: SavedKey;
+  deepseek?: SavedKey & { baseUrl?: string };
   meta?: SavedKey;
   /** X research comes with MausBot Cloud plans: `included` while this server holds the plan's relay credential;
    * `unavailable` when the Admin said no to this desktop's paid sign-in. */

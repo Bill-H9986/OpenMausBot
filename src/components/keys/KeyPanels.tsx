@@ -244,3 +244,47 @@ export function OpenAiCompatUrl() {
     </div>
   );
 }
+
+export function DeepSeekEndpoint() {
+  const { state, dispatch } = useStore();
+  const saved = state.config?.deepseek?.baseUrl ?? "";
+  const [value, setValue] = useState(saved);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const savingRef = useRef(false);
+  useEffect(() => { setValue(saved); }, [saved]);
+  const dirty = value.trim() !== saved;
+
+  const save = () => {
+    if (savingRef.current || !dirty) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError(null);
+    api("/api/config", { method: "PUT", body: JSON.stringify({ deepseek: { baseUrl: value.trim() } }) })
+      .then((status: ConfigStatus) => dispatch({ type: "configStatus", config: status }))
+      .catch((e) => setError(e.message))
+      .finally(() => { savingRef.current = false; setSaving(false); });
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="text-[13px] leading-[18px] text-ink">{t("keys.deepseek.baseUrl")}</div>
+      <div className="relative">
+        <input
+          type="url"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => e.key === "Enter" && save()}
+          placeholder="https://api.deepseek.com/anthropic"
+          aria-label={t("keys.deepseek.baseUrl")}
+          spellCheck={false}
+          className={cn(KEY_FIELD, "pr-8")}
+        />
+        {saving && <Loader2 size={13} aria-hidden="true" className="absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-ink-secondary" />}
+      </div>
+      <p className="text-[12px] leading-4 text-ink-secondary">{t("keys.deepseek.baseUrlHint")}</p>
+      {error && <div role="alert" className="text-[12px] leading-4 text-danger">{error}</div>}
+    </div>
+  );
+}

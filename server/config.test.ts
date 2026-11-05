@@ -875,8 +875,23 @@ describe("default fleet", () => {
     expect(instanceConfigs({ instances: { standalone: { driver: "fake" } } })).not.toHaveProperty("deepseek");
   });
 
+  it("hands a DeepSeek endpoint to that engine only, as DEEPSEEK_BASE_URL", () => {
+    const cfg: AppConfig = { deepseek: { key: "ds-workspace", baseUrl: "https://gateway.example.test/anthropic" }, instances: {
+      codex: { driver: "codex" },
+      kimi: { driver: "kimiAgent" },
+      deepseekOwn: { driver: "deepseekAgent", environment: { DEEPSEEK_API_KEY: "ds-own", DEEPSEEK_BASE_URL: "https://own.example.test/anthropic" } },
+    } };
+    const map = instanceConfigs(cfg);
+    expect(map.deepseek).toEqual({ driver: "deepseekAgent", environment: { DEEPSEEK_API_KEY: "ds-workspace", DEEPSEEK_BASE_URL: "https://gateway.example.test/anthropic" } });
+    expect(map.codex.environment).toEqual({});
+    expect(map.kimi.environment).toEqual({});
+    // An account with its own key keeps its own endpoint; the workspace pair never lands on it.
+    expect(map.deepseekOwn.environment).toEqual({ DEEPSEEK_API_KEY: "ds-own", DEEPSEEK_BASE_URL: "https://own.example.test/anthropic" });
+  });
+
   it("accepts clearing a DeepSeek key and removes it from child environments", () => {
     expect(parseConfigPatch({ deepseek: { key: "" } })).toEqual({ deepseek: { key: "" } });
+    expect(parseConfigPatch({ deepseek: { baseUrl: "" } })).toEqual({ deepseek: { baseUrl: "" } });
     const env = { OMB_DEEPSEEK_API_KEY: "ds-fixture", DEEPSEEK_API_KEY: "ds-ambient", KEEP: "yes" };
     stripWorkspaceCredentialEnv(env);
     expect(env).toEqual({ DEEPSEEK_API_KEY: "ds-ambient", KEEP: "yes" });
