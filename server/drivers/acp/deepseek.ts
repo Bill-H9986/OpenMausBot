@@ -210,6 +210,22 @@ export function bundledDshEntry(): string | null {
   return existsSync(entry) ? entry : null;
 }
 
+/** The launch environment a dsh child gets: dsh 0.2.1-rc.5 reads
+ * process.env.DSH_TELEMETRY_DISABLED at profile boot (any non-empty value
+ * disables OTel session telemetry), and loopback must never ride a proxy,
+ * so NO_PROXY/no_proxy are made to cover 127.0.0.1 and localhost while the
+ * operator's existing exclusion entries are kept. */
+export function dshChildEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  const child: Record<string, string | undefined> = { ...env, DSH_TELEMETRY_DISABLED: "1" };
+  for (const name of ["NO_PROXY", "no_proxy"]) {
+    const entries = (child[name] ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+    for (const loopback of ["127.0.0.1", "localhost"]) {
+      if (!entries.some((part) => part.toLowerCase() === loopback)) entries.push(loopback);
+    }
+    child[name] = entries.join(",");
+  }
+  return child;
+}
 /** One dsh invocation: the shipped runtime under the app's executable when the
  * effective CLI is the plain `dsh` name, otherwise the CLI resolved on PATH.
  * A user's custom CLI is never replaced. */
@@ -218,12 +234,13 @@ export function dshLaunch(
   env: Record<string, string | undefined>,
   args: string[],
 ): { command: string; args: string[]; env?: Record<string, string | undefined> } {
+  const launchEnv = dshChildEnv(env);
   const entry = bundledDshEntry();
   if (entry && cli === "dsh") {
-    return { command: process.execPath, args: [entry, ...args], env: { ...env, ELECTRON_RUN_AS_NODE: "1" } };
+    return { command: process.execPath, args: [entry, ...args], env: { ...launchEnv, ELECTRON_RUN_AS_NODE: "1" } };
   }
-  const resolved = resolveCli(cli, args, env);
-  return { command: resolved.command, args: resolved.args };
+  const resolved = resolveCli(cli, args, launchEnv);
+  return { command: resolved.command, args: resolved.args, env: launchEnv };
 }
 
 /** Ask the installed dsh what it offers: initialize, session/new in `cwd`,
@@ -375,7 +392,7 @@ export const deepseekSupport: AcpSupport = {
     if (!probed.version) return { state: "unavailable", reason: probed.reason };
     return { state: "available", version: probed.version, authenticated: hasDeepSeekKey(env) };
   },
-  credentialEnv: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", CUSTOM_OPENAI_API_KEY_ENV],
+  credentialEnv: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", CUSTOM_OPENAI_API_KEY_ENV, "DSH_TELEMETRY_DISABLED"],
   // Model and reasoning effort are session config options (see header).
   selectModel: { configId: "model" },
   modelVariants: true,
