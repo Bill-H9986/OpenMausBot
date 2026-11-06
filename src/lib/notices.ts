@@ -23,7 +23,6 @@ export const GROK_MOVE_NOTICE = "grok-move-2026-11";
  * question may follow it there. The rest wait for later launches, in this order.
  */
 export const NOTICES = [
-  GROK_MOVE_NOTICE,
   SIMPLE_MODE_NOTICE,
   WHATS_NEW_NOTICE,
   UPDATES_CONSENT_NOTICE,

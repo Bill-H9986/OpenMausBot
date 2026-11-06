@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { cn } from "@/lib/cn";
-import { HermesMark } from "./HermesMark";
 import { CursorMark } from "./CursorMark";
 import { GrokBotMark } from "./GrokBotMark";
 import type { InstanceInfo } from "@/state/store";
 import type { ProviderIconPreset } from "../../shared/provider-icon";
 import { FADED_PROVIDER_MARK, providerMarkTone } from "./provider-mark-fade";
 
-export { HermesMark, CursorMark, GrokBotMark };
+export { CursorMark, GrokBotMark };
 
 export interface IconProps {
   size?: number;
@@ -161,8 +160,6 @@ export function ProviderMark({ driverKind, size, className }: IconProps & { driv
       return <OpenCodeMark size={size} className={className} />;
     case "qwenAgent":
       return <QwenMark size={size} className={className} />;
-    case "hermesAgent":
-      return <HermesMark size={size} className={className} />;
     case "deepseekAgent":
       return <DeepSeekMark size={size} className={className} />;
     case "piAgent":

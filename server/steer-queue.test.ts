@@ -793,23 +793,23 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
       JSON.stringify({
         instances: {
           steer: {
-            driver: "grokAgent",
+            driver: "deepseekAgent",
             environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: drainGate },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
           steerEarly: {
-            driver: "grokAgent",
+            driver: "deepseekAgent",
             environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: earlyGate },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
           steerReceipt: {
-            driver: "grokAgent",
+            driver: "deepseekAgent",
             environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: receiptGate },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
           // Wait for session/prompt to be in flight: an earlier interrupt is a no-op on a turn the driver has not registered.
           steerStop: {
-            driver: "grokAgent",
+            driver: "deepseekAgent",
             environment: {
               FAKE_ACP_MODE: "echo-gated",
               FAKE_ACP_GATE_FILE: stopGate,
@@ -819,7 +819,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
           },
           // One gate holds the room's turn open while a 1:1 message arrives.
           steerRoom: {
-            driver: "grokAgent",
+            driver: "deepseekAgent",
             environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: roomGate, FAKE_ACP_RPC_APPEND_FILE: roomRpcAppend },
             config: { cli: FAKE_CLI, fullAuto: true },
           },

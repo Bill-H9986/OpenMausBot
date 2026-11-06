@@ -25,30 +25,29 @@ const render = (props: ComponentProps<typeof KeyRow>) => renderToStaticMarkup(cr
 
 describe("an empty key row", () => {
   it("is a calm field with the key's shape, show and hide, one Save and where to get a key", () => {
-    const html = render({ id: "anthropic" });
-    expect(html).toContain("Anthropic API key");
-    expect(html).toContain("Claude models, billed per token");
-    expect(html).toMatch(/<input[^>]*type="password"[^>]*placeholder="sk-ant-…"[^>]*aria-label="Anthropic API key"[^>]*value=""/);
+    const html = render({ id: "deepseek" });
+    expect(html).toContain("DeepSeek API key");
+    expect(html).toContain("DeepSeek Harness");
+    expect(html).toMatch(/<input[^>]*type="password"[^>]*placeholder="sk-…"[^>]*aria-label="DeepSeek API key"[^>]*value=""/);
     expect(html).toContain('aria-label="Show key"');
     expect(html.match(/data-key-save=/g)).toHaveLength(1);
     expect(html).toMatch(/data-key-save="true"[^>]*disabled=""/);
-    expect(html).toMatch(/<a href="https:\/\/console\.anthropic\.com\/settings\/keys"[^>]*>Get a key/);
+    expect(html).toMatch(/<a href="https:\/\/platform\.deepseek\.com\/api_keys"[^>]*>Get a key/);
     expect(html).not.toContain("Connected");
     expect(html).not.toContain("data-key-masked");
   });
 
   it("keeps a key's warning in view before it is added", () => {
     expect(render({ id: "box" })).toContain("Boat is a paid service after its trial.");
-    expect(render({ id: "openai" })).toContain("Codex doesn&#x27;t use this key");
   });
 });
 
 describe("a saved key", () => {
   it("shows the key masked to its last four, Connected with a check, and Replace and Remove beside it", () => {
-    fixture.config = { anthropic: { configured: true, last4: "a1b2" } };
-    const html = render({ id: "anthropic" });
+    fixture.config = { openaiCompat: { configured: true, last4: "a1b2" } };
+    const html = render({ id: "openaiCompat" });
     expect(html).toContain("••••••••a1b2");
-    expect(html).toContain("Anthropic API key is saved and ends in a1b2");
+    expect(html).toContain("OpenAI-compatible API key is saved and ends in a1b2");
     expect(html).toContain(">Connected<");
     expect(html).toContain("data-key-replace");
     expect(html).toContain("data-key-remove");
@@ -79,10 +78,10 @@ describe("a saved key", () => {
   });
 
   it("marks a key its provider has since rejected as not working, keeping it in view to replace", () => {
-    fixture.config = { openai: { configured: true, last4: "a1b2" } };
-    fixture.instances = [{ instanceId: "openai", driverKind: "openai-compat", displayName: "OpenAI", access: "api",
+    fixture.config = { openaiCompat: { configured: true, last4: "a1b2" } };
+    fixture.instances = [{ instanceId: "openaiCompat", driverKind: "openai-compat", displayName: "OpenAI-compatible", access: "api",
       snapshot: { state: "available", authenticated: false }, models: { default: "m", options: [] } } as unknown as InstanceInfo];
-    const html = render({ id: "openai" });
+    const html = render({ id: "openaiCompat" });
     expect(html).toContain(">Didn&#x27;t work<");
     expect(html).toContain("Didn&#x27;t work: The provider rejected this key.");
     expect(html).toContain("••••••••a1b2");
@@ -106,15 +105,7 @@ describe("a saved key", () => {
     expect(render({ id: "deepseek" })).toContain("data-key-engine-missing");
     fixture.instances = [deepseek("available")];
     expect(render({ id: "deepseek" })).not.toContain("data-key-engine-missing");
-    // The Grok CLI drops XAI_API_KEY (it uses a grok.com sign-in), so its install never makes the xAI key usable.
-    const grokCli = { ...deepseek("unavailable"), instanceId: "grok", driverKind: "grokAgent", displayName: "Grok" } as InstanceInfo;
-    fixture.config = { xai: { configured: true, last4: "8y8y" } };
-    fixture.instances = [grokCli, { ...deepseek("available"), instanceId: "xaiApi", install: undefined }];
-    expect(render({ id: "xai" })).not.toContain("data-key-engine-missing");
-    fixture.instances = [grokCli];
-    expect(render({ id: "xai" })).not.toContain("data-key-engine-missing");
-    fixture.instances = [{ ...deepseek("unavailable"), instanceId: "xaiApi", displayName: "xAI API", install: undefined }, grokCli];
-    expect(render({ id: "xai" })).not.toContain("data-key-engine-missing");
+
     // An unavailable engine with nothing to install doesn't hide one that has a command.
     fixture.config = { deepseek: { configured: true, last4: "9z9z" } };
     fixture.instances = [{ ...deepseek("unavailable"), displayName: "Other", install: undefined }, deepseek("unavailable")];
@@ -138,13 +129,13 @@ describe("a key that comes with the Cloud plan", () => {
 
 describe("a row that uses another row's key", () => {
   it("shows the OpenAI key under its own name in Voice and calls, without a second Remove", () => {
-    fixture.config = { openai: { configured: true, last4: "a1b2" } };
-    const html = render({ id: "openai", row: "liveCalls" });
+    fixture.config = { savedKeys: { openaiLiveKey: { configured: true, last4: "a1b2" } } };
+    const html = render({ id: "liveKey", row: "liveCalls" });
     expect(html).toContain('data-key-row="liveCalls"');
     expect(html).not.toContain("data-api-key-row");
     expect(html).toContain("OpenAI key");
     expect(html).toContain("Live calls use the same key as OpenAI&#x27;s models");
-    expect(html).toContain("••••••••a1b2");
+    expect(html).toContain("••••••••a1b2")
     expect(html).toContain("data-key-replace");
     expect(html).not.toContain("data-key-remove");
   });

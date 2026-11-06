@@ -281,7 +281,7 @@ export function DecisionModelSettings() {
                 <button
                   type="button"
                   data-testid="decider-manage-keys"
-                  onClick={() => dispatch(openKeySettings("openrouter"))}
+                  onClick={() => dispatch(openKeySettings("openrouterHelper"))}
                   className="cursor-pointer text-accent hover:underline"
                 >
                   {t("decider.openrouter.key.manageLink")}

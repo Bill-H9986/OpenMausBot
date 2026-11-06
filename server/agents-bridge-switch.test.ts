@@ -149,13 +149,11 @@ describe("which engines a turn is bridged on", () => {
     expect(agentsToolBridgeEnv(ON, bot, undefined, {})).toEqual(off);
   });
 
-  it("sorts the default fleet the same way: its Claude and API-model engines, and none of Codex, Pi or its ACP agents", () => {
+  it("ships no API-bridge engine in the default fleet", () => {
     const fleet = instanceConfigs({});
+    expect(Object.keys(fleet)).toEqual(["deepseek"]);
     const bridged = new Set(Object.entries(fleet).filter(([, instance]) => engineBridgeRefusal(ON, turnEngine({ instanceId: "any", driverKind: instance.driver }, { any: instance }, { version: "2.1.232 (Claude Code)" }, CLAUDE.cwd), {}, HOST) === null).map(([id]) => id));
-    for (const id of ["claude", "openaiCompat", "mistral", "cerebras", "groq", "greenference", "meta"]) expect(bridged.has(id), id).toBe(true);
-    // the default `grok` is the ACP agent, not the API-key driver
-    for (const id of ["codex", "chatgpt", "pi", "grok", "kimi", "droid", "cursor", "antigravity", "opencodeGo", "museCode", "qwen", "hermes", "cline"]) expect(bridged.has(id), id).toBe(false);
-    for (const id of bridged) expect(["claudeAgent", "openai-compat", "cerebras", "greenference", "grok", "groq", "meta", "minimax", "mistral"], id).toContain(fleet[id]!.driver);
+    expect([...bridged]).toEqual([]);
   });
 
   describe("Claude Code's exceptions", () => {

@@ -9,13 +9,11 @@ import { t } from "@/lib/i18n";
 import { ApiKeyEngineManage, EngineSetup, EngineUpdateNotice, EngineWarningNotice, isApiKeyEngine } from "./EngineSetup";
 import { AppCopyNotice } from "./EngineAppCopy";
 import { forgetAppCopySwitches } from "@/state/engine-install";
-import { AccountsCard, AddAccount, accountGroupOf, accountsReady, type AccountGroup } from "./EngineAccounts";
+import { AccountsCard, accountGroupOf, accountsReady, type AccountGroup } from "./EngineAccounts";
 import { DEVICE_SIGN_IN_COPY, deviceSignInProvider } from "./DeviceSignIn";
-import { AntigravityFreeSpace } from "./AntigravityFreeSpace";
 import { CacheKeepWarmSettings } from "./CacheKeepWarmSettings";
-import { ConfirmDialog } from "./ConfirmDialog";
 import { Select } from "./Select";
-import { SettingsDisclosureRow, SettingsGroup, SettingsRows } from "./SettingsPrimitives";
+import { SettingsGroup, SettingsRows } from "./SettingsPrimitives";
 import { InstanceProviderMark } from "./ProviderIcons";
 
 interface ProbeResult {
@@ -321,44 +319,6 @@ function EngineAdvanced({ instance }: { instance: InstanceInfo }) {
   );
 }
 
-/** Remove drops an added account; Sign out forgets a signed-in account's Google sign-in, the first one too. */
-function AntigravityAccountAction({ instance, action }: { instance: InstanceInfo; action: "remove" | "signOut" }) {
-  const { state, dispatch, refreshInstances } = useStore();
-  const [confirming, setConfirming] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const remove = action === "remove";
-  const usedBy = remove ? state.bots.filter((bot) => bot.modelSelection.instanceId === instance.instanceId).length : 0;
-  const label = t(remove ? "accounts.remove" : "accounts.signOut");
-  const run = async () => {
-    setConfirming(false);
-    setRunning(true);
-    setError(null);
-    try {
-      const path = `/api/instances/${encodeURIComponent(instance.instanceId)}${remove ? "" : "/auth/sign-out"}`;
-      const { instances } = await api(path, { method: remove ? "DELETE" : "POST" });
-      if (Array.isArray(instances)) dispatch({ type: "instances", instances });
-      else await refreshInstances();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setRunning(false);
-    }
-  };
-  return <>
-    <div className="flex flex-wrap items-center gap-2">
-      <button type="button" disabled={running || usedBy > 0} onClick={() => setConfirming(true)} className={cn("rounded-lg px-2.5 py-1.5 text-[12px] font-medium disabled:cursor-not-allowed disabled:opacity-50", remove ? "text-danger hover:bg-danger/10" : "text-ink-secondary hover:bg-raised hover:text-ink")}>
-        {running ? <Loader2 size={13} className="animate-spin" /> : label}
-      </button>
-      {usedBy > 0 && <p className="text-[11px] text-ink-secondary">{t("accounts.inUse", { count: String(usedBy) })}</p>}
-    </div>
-    {error && <p role="alert" className="text-[12px] text-danger">{error}</p>}
-    <ConfirmDialog open={confirming} title={t(remove ? "accounts.removeTitle" : "accounts.signOutTitle", { name: instance.displayName })}
-      body={t(remove ? "accounts.removeBodyAntigravity" : "accounts.signOutBody")}
-      confirmLabel={label} tone="neutral" pending={running} onCancel={() => { if (!running) setConfirming(false); }} onConfirm={() => void run()} />
-  </>;
-}
-
 function EngineRow({ instance, bare = false }: { instance: InstanceInfo; bare?: boolean }) {
   const policyNote = instance.policy && <p className="mb-2 text-[12px] leading-relaxed text-ink-secondary">
     <span className="font-medium text-ink">{t("policy.managedBy", { organization: instance.policy.organizationName })}</span> · {instance.policy.reason}
@@ -389,15 +349,6 @@ function EngineRow({ instance, bare = false }: { instance: InstanceInfo; bare?: 
             <p className="flex items-center gap-1.5 text-[12px] text-success"><Check size={13} />{t("engineSetup.claude.connectedAccount")}</p>
           )
       )}
-      {instance.freeUpSpace && <AntigravityFreeSpace instance={instance} />}
-      {instance.driverKind === "antigravityAgent" && (
-        <div className="mt-3 space-y-3">
-          {instance.snapshot.authenticated && <p className="break-words text-[12px] text-ink-secondary">{instance.snapshot.account?.email ?? t("engineSetup.antigravity.emailUnavailable")}</p>}
-          <AddAccount label={t("engineSetup.antigravity.addAccount")} endpoint="/api/instances/antigravity-accounts" extra={{ sourceInstanceId: instance.instanceId }} onAdded={() => {}} />
-          {instance.snapshot.authenticated === true && instance.authentication?.signOut === true && <AntigravityAccountAction instance={instance} action="signOut" />}
-          {instance.instanceId.startsWith("antigravity-") && <AntigravityAccountAction instance={instance} action="remove" />}
-        </div>
-      )}
       <EngineAdvanced instance={instance} />
     </EngineCard>
   );
@@ -408,20 +359,16 @@ function simpleStatus(instance: InstanceInfo, ready: boolean): string {
   return instance.snapshot.state === "available" && instance.snapshot.authenticated === false ? t("model.signInRequired") : t("onboarding.engines.needsSetup");
 }
 
-function SimpleEngines({ rows, isReady, renderEngine, more }: {
+function SimpleEngines({ rows, isReady, renderEngine }: {
   rows: InstanceInfo[];
   isReady: (instance: InstanceInfo) => boolean;
   renderEngine: (instance: InstanceInfo, bare?: boolean) => ReactNode;
-  more: { id: string; open: boolean; onToggle: () => void };
 }) {
   const [opened, setOpened] = useState<string | null>(null);
-  const featured = rows.filter((instance) => isReady(instance) || instance.authentication !== undefined);
-  const others = rows.filter((instance) => !featured.includes(instance));
   return (
-    <>
       <SettingsGroup label={t("settings.simple.ai.yours")} actions={<RefreshEngines />}>
         <SettingsRows>
-          {featured.map((instance) => {
+          {rows.map((instance) => {
             const ready = isReady(instance), open = opened === instance.instanceId;
             return (
               <div key={instance.instanceId} data-simple-engine={instance.instanceId} className="group">
@@ -443,20 +390,6 @@ function SimpleEngines({ rows, isReady, renderEngine, more }: {
           })}
         </SettingsRows>
       </SettingsGroup>
-      {others.length > 0 && (
-        <SettingsDisclosureRow
-          title={t("settings.simple.ai.more", { count: String(others.length) })}
-          trailing={<span aria-hidden="true" className="flex items-center -space-x-1">
-            {others.slice(0, 4).map((instance) => (
-              <span key={instance.instanceId} className="flex size-[18px] items-center justify-center rounded-full bg-menu"><InstanceProviderMark instance={instance} size={14} subtle /></span>
-            ))}
-          </span>}
-          {...more}
-        >
-          <EngineSections instances={others} isReady={isReady} renderEngine={(instance) => renderEngine(instance)} />
-        </SettingsDisclosureRow>
-      )}
-    </>
   );
 }
 
@@ -503,7 +436,7 @@ export function HiddenEngines() {
   );
 }
 
-export function EnginesSettings({ simple = false, more }: { simple?: boolean; more?: { id: string; open: boolean; onToggle: () => void } }) {
+export function EnginesSettings({ simple = false }: { simple?: boolean }) {
   const { state } = useStore();
   // Leaving Settings ends the "now uses the copy OpenMausBot installed" lines.
   useEffect(() => forgetAppCopySwitches, []);
@@ -527,7 +460,7 @@ export function EnginesSettings({ simple = false, more }: { simple?: boolean; mo
       : <EngineRow instance={instance} bare={bare} />;
   };
 
-  if (simple && more) return <SimpleEngines rows={rows} isReady={isReady} renderEngine={renderEngine} more={more} />;
+  if (simple) return <SimpleEngines rows={rows} isReady={isReady} renderEngine={renderEngine} />;
 
   return (
     <div className="flex min-w-0 flex-col gap-6 pb-2">

@@ -89,6 +89,7 @@ describe("native provider onboarding", () => {
   it.each([{ choice: 0, id: "codex", driver: "codex" }, { choice: 1, id: "claude", driver: "claudeAgent" }])(
     "uses an existing $id login and saves the selected model without starting an auth process",
     async ({ choice, id, driver }) => {
+      persist({ instances: { codex: { driver: "codex" }, claude: { driver: "claudeAgent" } } });
       const deps = dependencies();
       const ui = prompts({ choices: [choice, 1], confirms: [true] });
       expect(await runSetup(options, ui.io, deps)).toBe(true);
@@ -99,7 +100,6 @@ describe("native provider onboarding", () => {
       expect(ui.io.choose.mock.calls[1]?.[1]).toEqual(["Fixture default", "Fixture selected", "Search models…"]);
       expect(loadConfig().defaultModelSelection).toEqual({ instanceId: id, model: "fixture-selected" });
       expect(loadConfig().instances?.[id]).toEqual({ driver, enabled: true });
-      expect(loadConfig().instances?.openaiCompat.driver).toBe("openai-compat");
       expect(ui.lines.join("\n")).toContain("Existing sign-in found");
       expect(await isSetupComplete(DATA_DIR)).toBe(true);
       ui.assertConsumed();
@@ -653,7 +653,7 @@ describe("CLI startup preferences", () => {
 describe("setup state and write boundaries", () => {
   it("requires a saved selection belonging to an enabled configured or built-in instance", async () => {
     expect(await isSetupComplete(DATA_DIR)).toBe(false);
-    persist({ defaultModelSelection: { instanceId: "codex", model: "fixture" } });
+    persist({ instances: { codex: { driver: "codex" } }, defaultModelSelection: { instanceId: "codex", model: "fixture" } });
     expect(await isSetupComplete(DATA_DIR)).toBe(true);
     persist({ defaultModelSelection: { instanceId: "missing", model: "fixture" } });
     expect(await isSetupComplete(DATA_DIR)).toBe(false);

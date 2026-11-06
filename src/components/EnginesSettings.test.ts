@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bot, InstanceInfo } from "@/state/store";
 import { EnginesSettings } from "./EnginesSettings";
 import { accountActions } from "./EngineAccounts";
-import { AntigravityFreeSpace, formatDiskSize } from "./AntigravityFreeSpace";
 
 const fixture = vi.hoisted(() => ({ instances: [] as InstanceInfo[], bots: [] as Bot[], config: undefined as Record<string, unknown> | undefined }));
 vi.mock("@/state/store", async (importOriginal) => ({
@@ -254,26 +253,27 @@ describe("Settings → Engines → setup cards", () => {
     vi.stubGlobal("window", {});
     vi.stubGlobal("navigator", { userAgent: "Linux" });
     fixture.bots = [];
-    const openai = (snapshot: InstanceInfo["snapshot"]): InstanceInfo => ({
-      instanceId: "openai", displayName: "OpenAI", driverKind: "openai-compat", access: "api",
-      snapshot, models: { default: "gpt-5", options: [] },
-    });
-    fixture.instances = [openai({ state: "unavailable", reason: "No API key" })];
+    const deepseekEngine = (snapshot: InstanceInfo["snapshot"]): InstanceInfo => ({
+      instanceId: "deepseek", displayName: "DeepSeek Harness", driverKind: "deepseekAgent", access: "api",
+      snapshot, models: { default: "deepseek-official/deepseek-v4-flash", options: [] },
+      install: { settings: "connections" },
+    }) as unknown as InstanceInfo;
+    fixture.instances = [deepseekEngine({ state: "unavailable", reason: "No API key" })];
     const before = renderToStaticMarkup(createElement(EnginesSettings));
-    expect(before).toContain("OpenAI needs an API key");
-    expect(before).toContain('data-key-row="openai"');
+    expect(before).toContain("DeepSeek Harness needs an API key");
+    expect(before).toContain('data-key-row="deepseek"');
     expect(before).toContain('placeholder="sk-…"');
     expect(before).not.toContain("data-key-replace");
 
-    fixture.instances = [openai({ state: "available", authenticated: true, version: null })];
-    fixture.config = { openai: { configured: true, last4: "a1b2" } };
+    fixture.instances = [deepseekEngine({ state: "available", authenticated: true, version: null })];
+    fixture.config = { deepseek: { configured: true, last4: "a1b2" } };
     const saved = renderToStaticMarkup(createElement(EnginesSettings));
-    expect(saved).toContain('data-engine-card="openai"');
+    expect(saved).toContain('data-engine-card="deepseek"');
     expect(saved).toContain('data-engine-setup-api-key="configured"');
-    expect(saved).toContain("OpenAI uses your API key");
+    expect(saved).toContain("DeepSeek Harness uses your API key");
     expect(saved).toContain("••••••••a1b2");
     expect(saved).toContain("data-key-replace");
-    expect(saved).not.toContain("OpenAI needs an API key");
+    expect(saved).not.toContain("DeepSeek Harness needs an API key");
 
     vi.stubGlobal("window", { ogb: { remoteClient: { active: true } } });
     const remote = renderToStaticMarkup(createElement(EnginesSettings));
@@ -281,57 +281,9 @@ describe("Settings → Engines → setup cards", () => {
     expect(remote).not.toContain("data-key-row");
 
     vi.stubGlobal("window", {});
-    fixture.instances = [{ ...openai({ state: "available", authenticated: true, version: null }), managed: { organizationId: "org", organizationName: "Acme" } }];
+    fixture.instances = [{ ...deepseekEngine({ state: "available", authenticated: true, version: null }), managed: { organizationId: "org", organizationName: "MausBot Org" } } as InstanceInfo];
     expect(renderToStaticMarkup(createElement(EnginesSettings))).not.toContain("data-key-row");
     fixture.config = undefined;
-  });
-});
-
-describe("Settings → Engines → Antigravity → Free up space", () => {
-  const antigravity = (freeUpSpace?: boolean): InstanceInfo => ({
-    instanceId: "agy", displayName: "Antigravity", driverKind: "antigravityAgent", cliDefault: "agy",
-    snapshot: { state: "available", authenticated: true }, models: { default: "model", options: [] },
-    ...(freeUpSpace ? { freeUpSpace } : {}),
-  });
-
-  it("appears only where the server says the engine leaves files behind (Antigravity on Windows)", () => {
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("navigator", { userAgent: "Linux" });
-    fixture.bots = [];
-    fixture.instances = [antigravity(true)];
-    const html = renderToStaticMarkup(createElement(EnginesSettings));
-    expect(html).toContain("Leftover files");
-    expect(html).toContain("Free up space");
-    expect(html).toContain("Nothing is deleted until you confirm.");
-    fixture.instances = [antigravity()];
-    expect(renderToStaticMarkup(createElement(EnginesSettings))).not.toContain("Free up space");
-  });
-
-  it("says how much it found before offering to delete", () => {
-    const found = renderToStaticMarkup(createElement(AntigravityFreeSpace, {
-      instance: antigravity(true), initial: { kind: "found", bytes: 2.5 * 1024 ** 3, complete: true },
-    }));
-    expect(found).toContain("Found 2.5 GB of leftover files.");
-    expect(found).toContain("Delete them");
-    expect(found).toContain("Cancel");
-    const partial = renderToStaticMarkup(createElement(AntigravityFreeSpace, {
-      instance: antigravity(true), initial: { kind: "found", bytes: 340 * 1024 ** 2, complete: false },
-    }));
-    expect(partial).toContain("Found at least 340 MB of leftover files.");
-  });
-
-  it("reports what it freed and what it had to leave", () => {
-    const done = renderToStaticMarkup(createElement(AntigravityFreeSpace, {
-      instance: antigravity(true), initial: { kind: "done", freedBytes: 1.26 * 1024 ** 3, remaining: 1 },
-    }));
-    expect(done).toContain("Freed 1.3 GB.");
-    expect(done).toContain("Some files are still in use and were left alone.");
-    const nothing = renderToStaticMarkup(createElement(AntigravityFreeSpace, {
-      instance: antigravity(true), initial: { kind: "done", freedBytes: 0, remaining: 2 },
-    }));
-    expect(nothing).not.toContain("Freed");
-    expect(nothing).toContain("Some files are still in use and were left alone.");
-    expect(formatDiskSize(10)).toBe("less than 1 MB");
   });
 });
 
@@ -404,11 +356,11 @@ describe("Settings → AI in Simple mode", () => {
     instanceId, driverKind, displayName: instanceId, cliDefault: instanceId,
     snapshot: { state: "available", authenticated }, models: { default: "model", options: [] }, ...extra,
   });
-  const simple = (open = false) => {
+  const simple = () => {
     vi.stubGlobal("window", {});
     vi.stubGlobal("navigator", { userAgent: "Linux" });
     fixture.bots = [];
-    return renderToStaticMarkup(createElement(EnginesSettings, { simple: true, more: { id: "ai-more", open, onToggle: () => {} } }));
+    return renderToStaticMarkup(createElement(EnginesSettings, { simple: true }));
   };
   const rows = (html: string) => [...html.matchAll(/data-simple-engine="([^"]+)"/g)].map((match) => match[1]);
 
@@ -420,15 +372,10 @@ describe("Settings → AI in Simple mode", () => {
     ];
     const html = simple();
     expect(html).toContain(">Your AI</h3>");
-    expect(rows(html)).toEqual(["claude", "codex"]);
+    expect(rows(html)).toEqual(["claude", "codex", "kimi"]);
     expect(html).toMatch(/data-simple-engine="claude"[\s\S]*?>Manage<\/button>/);
     expect(html).toMatch(/data-simple-engine="codex"[\s\S]*?>Set up<\/button>/);
     expect(html).not.toContain("Model providers and accounts");
   });
 
-  it("folds every other provider under More AI providers, with the count", () => {
-    fixture.instances = [engine("claude", "claudeAgent", true), engine("kimi", "kimiAgent", false), engine("mistral", "mistral", false)];
-    expect(simple()).toMatch(/aria-expanded="false"[^>]*>[\s\S]*?More AI providers \(2\)/);
-    expect(simple(true)).toContain('data-engine-card="kimi"');
-  });
 });
