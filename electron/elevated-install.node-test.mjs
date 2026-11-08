@@ -7,6 +7,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+const canSymlink = (() => {
+  const probe = mkdtempSync(join(tmpdir(), "omb-symlink-probe-"));
+  try {
+    symlinkSync(join(probe, "target"), join(probe, "link"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
+
 import {
   ELEVATED_INSTALL_SCRIPT,
   PKEXEC,
@@ -112,7 +124,7 @@ test("each way the install can end maps to a reason the card can act on", async 
   }
 });
 
-test("nothing is run for a file or checksum that cannot be trusted", async () => {
+test("nothing is run for a file or checksum that cannot be trusted", { skip: canSymlink ? false : "symlinks need a privilege this host lacks" }, async () => {
   const f = fixture();
   try {
     const run = () => assert.fail("pkexec must not be started");

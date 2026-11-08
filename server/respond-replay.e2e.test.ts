@@ -82,7 +82,7 @@ posixOnly("a replayed respond for a settled card", () => {
     const data = join(home, ".openmausbot");
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, "config.json"), JSON.stringify({
-      instances: { grok: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "permission" }, config: { cli: FAKE_CLI, fullAuto: false } } },
+      instances: { grok: { driver: "deepseekAgent", environment: { FAKE_ACP_MODE: "permission", FAKE_ACP_MODELS: "fake-model" }, config: { cli: FAKE_CLI, fullAuto: false } } },
     }));
     await start();
   }, 40_000);

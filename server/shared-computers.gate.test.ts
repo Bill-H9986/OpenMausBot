@@ -9,7 +9,7 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
-const FAKE_CLAUDE_CLI = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
+const FAKE_ACP_CLI = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
 const TEST_CAPABILITY_KEY = "shared-computer-gate-fixture-capability";
 
 let PORT = 0;
@@ -69,7 +69,7 @@ beforeAll(async () => {
   mkdirSync(join(home, ".openmausbot"), { recursive: true });
   // No `features` block at all: the shipped default.
   writeFileSync(join(home, ".openmausbot", "config.json"), JSON.stringify({
-    instances: { claude: { driver: "claudeAgent", displayName: "Gate fixture", config: { cli: FAKE_CLAUDE_CLI } } },
+    instances: { claude: { driver: "deepseekAgent", displayName: "Gate fixture", config: { cli: FAKE_ACP_CLI }, environment: { FAKE_ACP_MODELS: "fake-model" } } },
   }));
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
     cwd: join(SERVER_DIR, ".."),

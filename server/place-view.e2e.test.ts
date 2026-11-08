@@ -139,8 +139,10 @@ describe("a cloud computer that can't start, against the real server", () => {
     ...(ownKey ? { box: { token: "box_place_view_fixture" } } : {}),
     // Every turn first takes one screenshot through the cloud computer's tools: that call, not the message, starts the cloud computer.
     instances: { claude: {
-      driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
-      environment: { FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1" },
+      driver: "deepseekAgent", config: { cli: join(ROOT, "server/testing/fake-acp-cli.ts") },
+      environment: {
+        FAKE_ACP_MODELS: "fake-model", FAKE_ACP_COMPUTER_TOOL: "1", FAKE_ACP_REPLIES: JSON.stringify(["Done."]),
+      },
     } },
   }));
   afterAll(async () => {

@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { setLocale, t } from "@/lib/i18n";
-import { locales } from "@/locales";
+import { locales, loadLocalePack } from "@/locales";
 import { screenPreviewFailure } from "@/lib/screen-preview";
 
 const capabilities: DesktopCapabilities = {
@@ -28,24 +28,26 @@ afterEach(() => {
 });
 
 describe("computer panel translation", () => {
-  it("resolves the local preview's phase copy at render, not at import", () => {
+  it("resolves the local preview's phase copy at render, not at import", async () => {
+    await loadLocalePack("zh");
     expect(renderToStaticMarkup(createElement(LocalScreenPreview))).toContain(
       t("computer.screen.idle"),
     );
 
-    setLocale("pt-br");
+    setLocale("zh");
     const html = renderToStaticMarkup(createElement(LocalScreenPreview));
-    expect(html).toContain(locales["pt-br"]!["computer.screen.idle"]);
-    expect(html).toContain(locales["pt-br"]!["computer.screen.title"]);
+    expect(html).toContain(locales["zh"]["computer.screen.idle"]);
+    expect(html).toContain(locales["zh"]["computer.screen.title"]);
     expect(html).not.toContain(locales.en["computer.screen.idle"]);
   });
 
-  it("hands the caller a key for a failed screen request, not a sentence", () => {
+  it("hands the caller a key for a failed screen request, not a sentence", async () => {
     const failure = screenPreviewFailure(new DOMException("cancelled", "AbortError"));
     expect(failure).toMatchObject({ ok: false, phase: "cancelled" });
 
-    setLocale("ja");
-    expect(t(failure.messageKey)).toBe(locales.ja!["computer.screen.cancelled"]);
+    await loadLocalePack("zh");
+    setLocale("zh");
+    expect(t(failure.messageKey)).toBe(locales["zh"]["computer.screen.cancelled"]);
   });
 
   it("translates the cloud preview in every pack", () => {

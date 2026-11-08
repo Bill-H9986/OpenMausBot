@@ -1,6 +1,6 @@
-// Real server, fake Claude CLI that logs each status probe: an engine's CLI is probed once per answer, not once per reader.
+// Real server, fake ACP CLI whose `--version` probe is logged: an engine's CLI is probed once per answer, not once per reader.
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,8 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const FAKE_CLI = join(ROOT, "server/testing/fake-claude-cli.ts");
+const FAKE_CLI = join(ROOT, "server/testing/fake-acp-cli.ts");
+const MODEL = "fake-model";
 
 const homes: string[] = [];
 const children: ChildProcess[] = [];
@@ -24,18 +25,30 @@ function freshHome(): string {
   const home = mkdtempSync(join(tmpdir(), "omb-engine-status-"));
   homes.push(home);
   mkdirSync(join(home, "tmp"), { recursive: true });
+  const gate = join(home, "hold-version");
   writeFileSync(join(home, "config.json"), JSON.stringify({
-    instances: { claude: { driver: "claudeAgent", displayName: "Verification fixture", config: { cli: FAKE_CLI } } },
+    instances: { claude: {
+      driver: "deepseekAgent",
+      displayName: "Verification fixture",
+      environment: {
+        FAKE_ACP_MODELS: MODEL,
+        FAKE_ACP_VERSION_HOLD_FILE: gate,
+        FAKE_ACP_VERSION_LOG: join(home, "version-probes.log"),
+        FAKE_ACP_LAUNCH_COUNT_FILE: join(home, "launches.log"),
+        DEEPSEEK_API_KEY: "sk-fixture",
+      },
+      config: { cli: FAKE_CLI },
+    } },
   }));
   return home;
 }
 
-async function boot(home: string, knobs: Record<string, string> = {}) {
+async function boot(home: string) {
   const port = await freePortBlock([0, 1]);
   const base = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server/index.ts")], {
     cwd: ROOT,
-    env: verificationServerEnvironment({ ...process.env, ...knobs }, home, port),
+    env: verificationServerEnvironment({ ...process.env }, home, port),
     stdio: ["ignore", "pipe", "pipe"],
   });
   children.push(child);
@@ -58,72 +71,58 @@ async function boot(home: string, knobs: Record<string, string> = {}) {
   return { call, control: (...args: string[]) => runControlOmb([...args, "--url", base]) as Promise<any>, stop };
 }
 
-const probeCount = (log: string, probe: "version" | "help" | "auth") =>
-  existsSync(log) ? readFileSync(log, "utf8").split("\n").filter((line) => line.startsWith(`${probe} `)).length : 0;
 const claudeStatus = (body: { instances: Array<{ instanceId: string; snapshot: Record<string, unknown> }> }) =>
   body.instances.find((instance) => instance.instanceId === "claude")!.snapshot;
+const versionProbes = (home: string): string[] => {
+  const log = join(home, "version-probes.log");
+  return existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : [];
+};
+const launches = (home: string): number => {
+  const file = join(home, "launches.log");
+  return existsSync(file) ? Number.parseInt(readFileSync(file, "utf8").trim(), 10) || 0 : 0;
+};
 
-it("probes the engine's CLI once on a later start while the model lists arrive and the engine list is read", async () => {
+it("probes the engine's CLI once on a later start while the engine list is read", async () => {
   const home = freshHome();
-  await (await boot(home)).stop();
+  const first = await boot(home);
+  await first.call("GET", "/api/instances");
+  await first.stop();
 
-  const probes = join(home, "probes.log");
-  const release = join(home, "release-auth");
-  const server = await boot(home, { FAKE_CLAUDE_PROBE_LOG: probes, FAKE_CLAUDE_HOLD_AUTH: release });
-  await expect.poll(() => probeCount(probes, "auth"), { timeout: 10_000 }).toBe(1);
-  // Like the page: its first engine list, and one more on each model list's config frame.
+  rmSync(join(home, "version-probes.log"), { force: true });
+  rmSync(join(home, "launches.log"), { force: true });
+  // The probe is held until the release file appears, so every reader overlaps it.
+  writeFileSync(join(home, "hold-version"), "");
+
+  const server = await boot(home);
+  await expect.poll(() => versionProbes(home).length, { timeout: 10_000 }).toBe(1);
   const lists = [server.call("GET", "/api/instances"), server.call("GET", "/api/instances"), server.call("GET", "/api/instances")];
-  // Every startup model list has answered by now, each asking for the new-bot default again.
   await new Promise((resolve) => setTimeout(resolve, 1_500));
-  expect({ version: probeCount(probes, "version"), help: probeCount(probes, "help"), auth: probeCount(probes, "auth") })
-    .toEqual({ version: 1, help: 1, auth: 1 });
-  writeFileSync(release, "");
+  expect({ probes: versionProbes(home).length, launches: launches(home) }).toEqual({ probes: 1, launches: 1 });
 
+  rmSync(join(home, "hold-version"), { force: true });
   for (const list of await Promise.all(lists)) expect(claudeStatus(list)).toMatchObject({ state: "available", authenticated: true });
   expect(claudeStatus(await server.call("GET", "/api/instances"))).toMatchObject({ state: "available", authenticated: true });
-  expect(probeCount(probes, "auth")).toBe(1);
+  expect({ probes: versionProbes(home).length, launches: launches(home) }).toEqual({ probes: 1, launches: 1 });
 }, 60_000);
 
-it("probes again after a sign-out, a model refresh, a saved key and a Claude update, and reuses the last read otherwise", async () => {
+it("reuses the last read and probes again after a model refresh", async () => {
   const home = freshHome();
-  const signIn = () => {
-    mkdirSync(join(home, ".claude"), { recursive: true });
-    writeFileSync(join(home, ".claude", "fake-auth.json"), JSON.stringify({ email: "fixture@example.test" }));
-  };
-  signIn();
-  const probes = join(home, "probes.log");
-  const server = await boot(home, { FAKE_CLAUDE_AUTH: "file", FAKE_CLAUDE_PROBE_LOG: probes });
+  const server = await boot(home);
   const engines = () => server.call("GET", "/api/instances");
-  // Each step reads the engines first: the read is reused, so the probe after it is the step's own.
-  const reused = async () => {
-    const before = probeCount(probes, "auth");
-    const status = claudeStatus(await engines());
-    expect(probeCount(probes, "auth")).toBe(before);
-    return { status, before };
-  };
 
-  expect(claudeStatus(await engines())).toMatchObject({ authenticated: true, account: { email: "fixture@example.test" } });
-  let step = await reused();
+  expect(claudeStatus(await engines())).toMatchObject({ state: "available", authenticated: true });
+  const once = launches(home);
+  expect(once).toBe(1);
 
-  // The sign-out confirms itself with its own `auth status`; the engine list it answers with is read after it.
-  const signedOut = await server.call("POST", "/api/instances/claude/auth/sign-out", {});
-  expect(claudeStatus(signedOut)).toMatchObject({ authenticated: false });
-  expect(probeCount(probes, "auth")).toBeGreaterThan(step.before);
-
-  // Signed in again in a terminal: Settings' Check reads it at once.
-  step = await reused();
-  expect(step.status).toMatchObject({ authenticated: false });
-  signIn();
-  expect(claudeStatus(await server.call("POST", "/api/instances/claude/refresh-models", {}))).toMatchObject({ authenticated: true });
-  expect(probeCount(probes, "auth")).toBe(step.before + 1);
-
-  step = await reused();
-  await server.call("PUT", "/api/config", { opencodeGo: { apiKey: "fixture-opencode-key" } });
+  // A read inside the reuse window answers from the finished probe, without spawning the CLI again.
   await engines();
-  expect(probeCount(probes, "auth")).toBe(step.before + 1);
+  expect(launches(home)).toBe(once);
 
-  step = await reused();
-  expect(await server.call("POST", "/api/instances/claude/claude-update", {})).toMatchObject({ ok: true });
-  await engines();
-  expect(probeCount(probes, "auth")).toBe(step.before + 1);
+  // Settings' Refresh re-reads the engine's catalog and forgets the status read, so the next list probes again.
+  const refreshed = await server.call("POST", "/api/instances/claude/refresh-models", {});
+  expect(claudeStatus(refreshed)).toMatchObject({ state: "available", authenticated: true });
+  const afterRefresh = launches(home);
+  expect(afterRefresh).toBeGreaterThan(once);
+  expect(claudeStatus(await engines())).toMatchObject({ state: "available", authenticated: true });
+  expect(launches(home)).toBe(afterRefresh);
 }, 60_000);

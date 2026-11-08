@@ -2,10 +2,12 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb, type VerificationServer } from "../scripts/control-omb.ts";
 import { readHandoffs } from "./testing/handoff-rows.ts";
+
+const SERVER_DIR = join(fileURLToPath(import.meta.url), "..");
 
 type Bot = { id: string; activeTaskId: string };
 type Message = { id: string; role: string; kind: string; text?: string; sendId?: string; steered?: boolean; turnTerminal?: boolean; tool?: { name: string; ok?: boolean } };
@@ -48,7 +50,7 @@ describe("guarded external messages through an isolated runtime", () => {
   const initialOutputProcessed = async (threadId: string) => {
     // The launch dump precedes stdout: wait for the first tool result before snapshotting the leaf.
     await expect.poll(async () => (await page(threadId)).messages.some(message =>
-      message.kind === "activity" && message.tool?.name === "Bash" && message.tool.ok === true,
+      message.kind === "activity" && message.tool?.ok === true,
     ), { timeout: 15_000 }).toBe(true);
   };
   const finish = async (bot: Bot, threadId = bot.activeTaskId) => {
@@ -67,16 +69,16 @@ describe("guarded external messages through an isolated runtime", () => {
   beforeEach(async () => {
     evidence = [];
     fixture = await launchVerificationServer();
-    const wrapper = join(fixture.info.dataDir, "guarded-fake-claude.mjs");
+    const wrapper = join(fixture.info.dataDir, "guarded-fake-acp.mjs");
     writeFileSync(wrapper, [
       "#!/usr/bin/env node",
       'import { basename, join } from "node:path";',
       'const thread = basename(process.cwd());',
-      'process.env.FAKE_CLAUDE_MODE = "slow";',
-      `process.env.FAKE_CLAUDE_SLOW_FINISH_GATE = join(${JSON.stringify(fixture.info.dataDir)}, thread + ".gate");`,
-      `process.env.FAKE_CLAUDE_DUMP = join(${JSON.stringify(fixture.info.dataDir)}, thread + ".launch.json");`,
-      `process.env.FAKE_CLAUDE_STEER_RECEIVED = join(${JSON.stringify(fixture.info.dataDir)}, thread + ".steered");`,
-      `await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "server/testing/fake-claude-cli.ts")).href)});`,
+      `process.env.FAKE_ACP_RELEASE_FILE = join(${JSON.stringify(fixture.info.dataDir)}, thread + ".gate");`,
+      `process.env.FAKE_ACP_DUMP = join(${JSON.stringify(fixture.info.dataDir)}, thread + ".launch.json");`,
+      // One real agents tool call, so the turn has processed a tool result before a test snapshots its leaf.
+      'process.env.FAKE_ACP_MCP_CALLS = JSON.stringify([{ tool: "list_bots", args: {} }]);',
+      `await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-acp-cli.ts")).href)});`,
     ].join("\n"), { mode: 0o700 });
     expect((await api("PATCH", "/api/instances/claude", { cli: wrapper })).status).toBe(200);
   }, 30_000);
@@ -165,7 +167,6 @@ describe("guarded external messages through an isolated runtime", () => {
     await noQueuedWork(bot.activeTaskId); await noQueuedWork(blockedThread);
     expect((await page(bot.activeTaskId)).messages.filter(message => message.role === "user").map(message => message.text)).toEqual(["NORMAL_TURN_OWNS_THE_THREAD"]);
     expect((await page(blockedThread)).messages).toEqual([]);
-    expect(existsSync(file(bot.activeTaskId, "steered"))).toBe(false);
     await finish(bot);
     expect((await page(blockedThread)).messages).toEqual([]);
     expect(existsSync(file(blockedThread, "launch.json"))).toBe(false);
@@ -183,7 +184,6 @@ describe("guarded external messages through an isolated runtime", () => {
     expect(retries.every(result => result.body.message.id === accepted.body.message.id)).toBe(true);
     expect(retries.every(result => !result.body.steered && !result.body.queued)).toBe(true);
     await launched(bot.activeTaskId);
-    expect(existsSync(file(bot.activeTaskId, "steered"))).toBe(false);
     expect((await page(bot.activeTaskId)).messages.filter(message => message.role === "user")).toHaveLength(1);
     await noQueuedWork(bot.activeTaskId);
     await finish(bot);

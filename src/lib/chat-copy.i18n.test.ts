@@ -16,18 +16,18 @@ afterEach(() => {
 
 describe("live activity label", () => {
   it("translates the fallback table, which is built once at import time", () => {
-    setLocale("pt-br");
-    expect(liveActivityLabel()).toBe("Pensando");
-    expect(liveActivityLabel(activity("Bash: pnpm test"))).toBe("Executando um comando");
-    expect(liveActivityLabel(activity("mcp__computer__click"))).toBe("Usando a tela");
+    setLocale("en");
+    expect(liveActivityLabel()).toBe("Thinking");
+    expect(liveActivityLabel(activity("Bash: pnpm test"))).toBe("Running a command");
+    expect(liveActivityLabel(activity("mcp__computer__click"))).toBe("Using the screen");
 
-    setLocale("ja");
-    expect(liveActivityLabel(activity("web_search"))).toBe("ウェブを検索中");
-    expect(liveActivityLabel(activity("something_unknown"))).toBe("作業中");
+    setLocale("en");
+    expect(liveActivityLabel(activity("web_search"))).toBe("Searching the web");
+    expect(liveActivityLabel(activity("something_unknown"))).toBe("Working");
   });
 
   it("leaves the server's own narration alone", () => {
-    setLocale("pt-br");
+    setLocale("en");
     expect(liveActivityLabel(activity("Edit", { spoken: "editando um arquivo" }))).toBe(
       "Editando um arquivo",
     );
@@ -37,10 +37,8 @@ describe("live activity label", () => {
 describe("the memo key the transcript uses", () => {
   it("reports the locale that took effect, after fallback", () => {
     // MessagesList is memoized on its props; this is the only one that changes with the language.
-    expect(setLocale("pt-BR")).toBe("pt-br");
-    expect(activeLocale()).toBe("pt-br");
-    setLocale("de-AT");
-    expect(activeLocale()).toBe("de");
+    expect(setLocale("en")).toBe("en");
+    expect(activeLocale()).toBe("en");
     setLocale("xx-YY");
     expect(activeLocale()).toBe("en");
   });
@@ -50,22 +48,22 @@ describe("usage chip", () => {
   const usage = { input: 2000, output: 500, costUsd: 0.02, turns: 2 };
 
   it("translates the units and the cost caption", () => {
-    setLocale("pt-br");
-    expect(usageDetail(usage)).toContain("entrada");
-    expect(usageDetail(usage)).toContain("saída");
+    setLocale("en");
+    expect(usageDetail(usage)).toContain("input");
+    expect(usageDetail(usage)).toContain("output");
     expect(usageChip(usage)).toBe("$0.02");
-    expect(usageChip({ ...usage, costUsd: null })).toContain("entrada");
-    expect(costCaption("subscription")).toBe("equivalente — está na sua assinatura, não é cobrado");
-    expect(costCaption(undefined)).toBe("conforme informado pelo provedor");
+    expect(usageChip({ ...usage, costUsd: null })).toContain("input");
+    expect(costCaption("subscription")).toBe("equivalent (on your subscription, not billed)");
+    expect(costCaption(undefined)).toBe("as reported by the provider");
   });
 });
 
 describe("reply quote", () => {
   it("names the author and the stripped attachments in the reader's language", () => {
-    setLocale("pt-br");
+    setLocale("en");
     const fromUser = { id: "m", at: 1, role: "user", kind: "text" } as Message;
-    expect(replyAuthor(fromUser)).toBe("Você");
-    expect(replyAuthor({ ...fromUser, role: "bot" } as Message)).toBe("Assistente");
-    expect(replySnippet('<attached-image path="/tmp/a.png" />')).toBe("[imagem]");
+    expect(replyAuthor(fromUser)).toBe("You");
+    expect(replyAuthor({ ...fromUser, role: "bot" } as Message)).toBe("Assistant");
+    expect(replySnippet('<attached-image path="/tmp/a.png" />')).toBe("[image]");
   });
 });

@@ -11,7 +11,7 @@ import { freePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
-const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
+const FAKE_ACP = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
 
 const WAIT_CHIP = (name: string) => `${name} is finishing another conversation — will reply here when free`;
 
@@ -45,10 +45,10 @@ const api = async (
 };
 
 const fixture = (displayName: string, environment: Record<string, string>) => ({
-  driver: "claudeAgent",
+  driver: "deepseekAgent",
   displayName,
   environment,
-  config: { cli: FAKE_CLAUDE },
+  config: { cli: FAKE_ACP },
 });
 
 beforeAll(async () => {
@@ -61,15 +61,21 @@ beforeAll(async () => {
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body{}");
   patientFinishGate = join(home, "patient-finish");
   writeFileSync(patientFinishGate, "initial turns may finish");
+  // The static dsh catalog names ids the fake does not offer, so seed the startup model cache.
+  mkdirSync(join(data, "providers", "engine-models"), { recursive: true });
+  for (const instanceId of ["patient", "quick", "summoner"]) {
+    writeFileSync(join(data, "providers", "engine-models", `${instanceId}.json`),
+      JSON.stringify({ default: "fake-model", options: [{ id: "fake-model", label: "Fake model" }] }));
+  }
   writeFileSync(join(data, "config.json"), JSON.stringify({
     instances: {
       // A gate keeps a direct turn busy until the test observes the room's wait, rather than racing the fake CLI's 800ms closing reply.
-      patient: fixture("Patient fixture", { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: patientFinishGate }),
-      quick: fixture("Quick fixture", { FAKE_CLAUDE_MODE: "happy" }),
+      patient: fixture("Patient fixture", { FAKE_ACP_MODELS: "fake-model", FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: patientFinishGate }),
+      quick: fixture("Quick fixture", { FAKE_ACP_MODELS: "fake-model" }),
       summoner: fixture("Summoning fixture", {
-        FAKE_CLAUDE_MODE: "happy",
-        FAKE_CLAUDE_REPLIES: JSON.stringify(["Let me pull in @Bee for this."]),
-        FAKE_CLAUDE_REPLY_STATE: join(home, "summoner-replies.txt"),
+        FAKE_ACP_MODELS: "fake-model",
+        FAKE_ACP_REPLIES: JSON.stringify(["Let me pull in @Bee for this."]),
+        FAKE_ACP_REPLY_STATE: join(home, "summoner-replies.txt"),
       }),
     },
   }));
@@ -110,7 +116,7 @@ afterAll(async () => {
 const createBot = async (name: string, instanceId: string) =>
   (await api("POST", "/api/bots", {
     name,
-    modelSelection: { instanceId, model: "claude-sonnet-5" },
+    modelSelection: { instanceId, model: "fake-model" },
     requireAvailableModel: true,
   })).body.bot;
 

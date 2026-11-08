@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { setLocale, t } from "@/lib/i18n";
+import { loadLocalePack } from "@/locales";
 import { initialState, type Bot } from "@/state/store";
 
 vi.mock("./DesktopCapabilities", () => ({
@@ -37,36 +38,39 @@ afterEach(() => {
 });
 
 describe("sidebar rows", () => {
-  it("translates a legacy thread's fallback title", () => {
-    setLocale("ja");
+  it("translates a legacy thread's fallback title", async () => {
+    await loadLocalePack("zh");
+    setLocale("zh");
     const markup = renderToStaticMarkup(createElement(BotThreadList, { ...rowProps(bot()), selected: true }));
     expect(markup).toContain(`title="${t("task.newShort")}"`);
     expect(markup).not.toContain('title="New thread"');
   });
 
-  it("translates the row's own copy and its actions", () => {
-    setLocale("pt-br");
+  it("translates the row's own copy and its actions", async () => {
+    await loadLocalePack("zh");
+    setLocale("zh");
     const markup = renderRow(bot({ chiefOfStaff: true, busy: true }));
 
-    expect(markup).toContain("Chefe de gabinete");
+    expect(markup).toContain("总协调机器人");
     expect(markup).toContain(`>${t("chat.activity.thinking")}</span>`);
     expect(markup).not.toContain("Chief of Staff");
 
-    setLocale("ja");
+    setLocale("zh");
     expect(renderRow(bot())).toContain(`aria-label="${t("sidebar.bot.actions", { name: "Atlas" })}"`);
   });
 });
 
 describe("archive / delete confirmation copy", () => {
-  it("translates and keeps the bot's name out of the catalog", () => {
-    setLocale("pt-br");
+  it("translates and keeps the bot's name out of the catalog", async () => {
+    await loadLocalePack("zh");
+    setLocale("zh");
     const archive = botConfirmCopy("archive", "Juniper");
-    expect(archive.title).toBe("Arquivar Juniper?");
-    expect(archive.confirmLabel).toBe("Arquivar");
+    expect(archive.title).toBe("归档 Juniper？");
+    expect(archive.confirmLabel).toBe("归档");
 
     const remove = botConfirmCopy("delete", "Willow");
     expect(remove.body).toContain("Willow");
-    expect(remove.confirmLabel).toBe("Excluir");
+    expect(remove.confirmLabel).toBe("删除");
     setLocale("zh");
     expect(botConfirmCopy("delete", "Willow").title).toBe("删除 Willow？");
   });
@@ -116,7 +120,7 @@ describe("room delete confirmation copy", () => {
   });
 
   it("keeps the room's name intact in other languages", () => {
-    setLocale("pt-br");
+    setLocale("en");
     expect(roomDeleteCopy({ name: "Launch plan" }).title).toContain("Launch plan");
     expect(roomDeleteCopy({ name: "Launch plan" }).confirmLabel).toBe(t("sidebar.room.deleteChannel"));
   });

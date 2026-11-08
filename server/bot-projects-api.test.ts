@@ -28,8 +28,8 @@ describe("organizational folders through an isolated HTTP fixture", () => {
     const wrapper = join(fixture.info.dataDir, "project-fixture.mjs");
     writeFileSync(wrapper, [
       "#!/usr/bin/env node",
-      'process.env.FAKE_CLAUDE_MODE = "hang";',
-      `await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "server/testing/fake-claude-cli.ts")).href)});`,
+      'process.env.FAKE_ACP_MODE = "hang";',
+      `await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "server/testing/fake-acp-cli.ts")).href)});`,
     ].join("\n"), { mode: 0o700 });
     expect((await api("PATCH", "/api/instances/claude", { cli: wrapper })).status).toBe(200);
     const catalog = (await api("GET", "/api/instances")).body.instances.find((instance: any) => instance.instanceId === "claude");
@@ -58,7 +58,7 @@ describe("organizational folders through an isolated HTTP fixture", () => {
     expect((await api("PATCH", `/api/bots/${bot.id}/tasks/${first.threadId}`, { modelSelection: selection(models[1]) })).status).toBe(200);
     expect(first.cwd).toBeUndefined();
     expect((await api("POST", `/api/bots/${bot.id}/messages`, { threadId: first.threadId, text: "Keep this project's conversation" })).status).toBe(202);
-    await expect.poll(() => existsSync(join(fixture.info.dataDir, "fake-claude-dump.json"))).toBe(true);
+    await expect.poll(() => existsSync(fixture.fixtureDumpPath)).toBe(true);
     expect((await getBot(bot.id)).tasks.find((task: any) => task.threadId === first.threadId).busy).toBe(true);
     expect((await api("PATCH", `/api/bots/${bot.id}/projects/${projectId}`, { name: "Site" })).status).toBe(200);
     const moved = await api("PATCH", `/api/bots/${bot.id}/tasks/${first.threadId}`, { projectId: other.id });

@@ -29,9 +29,9 @@ describe("ToolActivity", () => {
   });
   it("translates unverified status in active locale", () => {
     try {
-      setLocale("es");
+      setLocale("zh");
       const html = renderToStaticMarkup(createElement(ToolActivity, { tool: { name: "Read" } }));
-      expect(html).toContain("Sin resultado");
+      expect(html).toContain("没有结果");
     } finally {
       setLocale("en");
     }

@@ -804,7 +804,7 @@ describe("the model picker in Simple mode", () => {
   });
 
   it("offers an OpenCode Copilot model's efforts from its catalog, and nothing for a model without them", () => {
-    // The catalog OpenCode 2.1.4 gave for a Copilot GPT model with an effort list, and for one without.
+    // A Copilot catalog: a model with an effort list, and one without.
     const variants = ["Low", "Medium", "High", "Xhigh", "Default"].map((label) => ({ id: label.toLowerCase(), label }));
     fixture.instances = [{
       ...engine("opencodeGo", "opencodeGo", "OpenCode", "api", [
@@ -816,7 +816,7 @@ describe("the model picker in Simple mode", () => {
     const band = (model: string) => region(menu(open(bot(undefined, "opencodeGo", model)).html), "data-simple-effort-band");
     const offered = band("github-copilot/gpt-5.3-codex");
     expect([...offered.matchAll(/<option[^>]*>([^<]*)<\/option>/g)].map((match) => match[1]))
-      .toEqual(["Use session setting", "Low", "Medium", "High", "Xhigh", "OpenCode default"]);
+      .toEqual(["Use session setting", "Low", "Medium", "High", "Xhigh", "Default"]);
     fixture.values = [];
     const plain = band("github-copilot/gemini-3.8-flash");
     expect(plain).toContain("data-simple-effort-band");

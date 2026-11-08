@@ -25,8 +25,8 @@ describe("a @devs report's status, under the message that sent it", () => {
   });
 
   it("follows the app's language", () => {
-    setLocale("de");
-    expect(text(renderToStaticMarkup(createElement(BugReportNote, { report: { id: "r1", status: "fixed", fixedIn: "0.1.135", running: true } })))).toBe("Fehlerbericht · Behoben in 0.1.135");
+    setLocale("zh");
+    expect(text(renderToStaticMarkup(createElement(BugReportNote, { report: { id: "r1", status: "fixed", fixedIn: "0.1.135", running: true } })))).toBe("错误报告 · 已在 0.1.135 中修复");
   });
 });
 
@@ -39,8 +39,8 @@ describe("the one line that says the fix runs here", () => {
 
   it("asks whether to try again, in the app's language", () => {
     expect(shown(line({ id: "r1", status: "fixed", fixedIn: "0.1.135", running: true }))).toBe("Fixed in 0.1.135. Want to try again?");
-    setLocale("de");
-    expect(shown(line({ id: "r1", status: "fixed", fixedIn: "0.1.135", running: true }))).toBe("Behoben in 0.1.135. Möchtest du es noch einmal versuchen?");
+    setLocale("zh");
+    expect(shown(line({ id: "r1", status: "fixed", fixedIn: "0.1.135", running: true }))).toBe("已在 0.1.135 中修复。要再试一次吗？");
     // A client older than the field, or a row without it, reads the server's words.
     expect(shown(line())).toBe("Fixed in 0.1.135. Want to try again?");
   });

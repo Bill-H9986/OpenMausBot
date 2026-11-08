@@ -31,24 +31,29 @@ async function until<T>(read: () => T | Promise<T>, accept: (value: T) => boolea
     await new Promise(r => setTimeout(r, 40));
   }
 }
-// The fake CLI writes its dump in one go; a poll can land mid-write, so a partial file is "not yet".
+// The fake writes the session mcpServers file when the session opens; a poll can land mid-write, so a partial file is "not yet".
 const dump = () => until(() => {
-  if (!existsSync(dumpFile)) return null;
-  try { return JSON.parse(readFileSync(dumpFile, "utf8")); } catch { return null; }
+  if (!existsSync(`${dumpFile}.mcp.json`)) return null;
+  try { return JSON.parse(readFileSync(`${dumpFile}.mcp.json`, "utf8")); } catch { return null; }
 }, Boolean);
 const idle = (botId: string) => until(() => api("GET", "/api/bots?messages=0"), s => !s.bots.find((b: any) => b.id === botId)?.busy);
 const busy = (botId: string) => until(() => api("GET", "/api/bots?messages=0"), s => s.bots.find((b: any) => b.id === botId)?.busy === true);
-const phoneSpec = (d: any) => {
-  expect(d.mcpConfig?.mcpServers?.phone, "phone tools should be mounted").toBeTruthy();
-  return d.mcpConfig.mcpServers.phone;
+const phoneSpec = (servers: any) => {
+  const phone = servers.find((server: any) => server?.name === "phone");
+  expect(phone, "phone tools should be mounted").toBeTruthy();
+  return phone;
+};
+const clearDump = () => {
+  rmSync(dumpFile, { force: true });
+  rmSync(`${dumpFile}.mcp.json`, { force: true });
 };
 const holdDirectTurn = async (botId: string, text: string) => {
-  rmSync(dumpFile, { force: true });
+  clearDump();
   await api("POST", `/api/bots/${botId}/messages`, { text });
   return phoneSpec(await dump());
 };
 const holdRoomTurn = async (groupId: string, text: string) => {
-  rmSync(dumpFile, { force: true });
+  clearDump();
   await api("POST", `/api/groups/${groupId}/messages`, { text });
   return phoneSpec(await dump());
 };
@@ -117,8 +122,8 @@ beforeAll(async () => {
   writeFileSync(join(ui, "index.html"), "<title>Phone claim</title>");
   writeFileSync(join(ui, "assets", "test.css"), "body{}");
   writeFileSync(join(data, "config.json"), JSON.stringify({ instances: { claude: {
-    driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
-    environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_DUMP: dumpFile, FAKE_CLAUDE_SLOW_FINISH_GATE: finishFile },
+    driver: "deepseekAgent", config: { cli: join(ROOT, "server/testing/fake-acp-cli.ts") },
+    environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: finishFile, FAKE_ACP_DUMP: dumpFile, FAKE_ACP_MODELS: "fake-model" },
   } } }));
   const port = await freePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;

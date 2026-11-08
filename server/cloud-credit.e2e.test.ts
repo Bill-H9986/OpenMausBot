@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { cloudPairingSignature } from "./cloud-home.ts";
 import { CLOUD_CREDIT_INSTANCE } from "./cloud-credit-provider.ts";
@@ -84,6 +84,9 @@ async function api(method: string, path: string, options: { body?: unknown; remo
   return { status: response.status, body: text ? JSON.parse(text) : null, text };
 }
 
+let signIn: () => void = () => {};
+let signOut: () => void = () => {};
+
 beforeAll(async () => {
   stub = createServer((req, res) => {
     let body = "";
@@ -115,44 +118,18 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "omb-cloud-credit-"));
   data = join(home, ".openmausbot");
   mkdirSync(data, { recursive: true });
-  // The person's own Claude Code, as on the image: signed out until the test
-  // signs the person in. Each turn is a fresh process, which records its
-  // environment; the credit's engine never runs it.
-  const cli = join(home, "fixture-claude.mjs");
-  writeFileSync(cli, `#!/usr/bin/env node
-import { existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
-const home = ${JSON.stringify(home)};
-// Signing out in Settings runs \`claude auth logout\`.
-if (process.argv[2] === "auth" && process.argv[3] === "logout") {
-  rmSync(join(home, "signed-in"), { force: true });
-  process.stdout.write("Successfully logged out from your Anthropic account.\\n", () => process.exit(0));
-  await new Promise(() => {});
-}
-// Signed out, \`auth status\` exits 1, as Claude Code's does; a key leaked into its environment would still sign it in.
-if (process.argv[2] === "auth" && process.argv[3] === "status" && !existsSync(join(home, "signed-in")) && !process.env.ANTHROPIC_API_KEY) {
-  process.stdout.write(JSON.stringify({ loggedIn: false, authMethod: "none", apiProvider: "firstParty" }) + "\\n", () => process.exit(1));
-  await new Promise(() => {});
-}
-process.env.FAKE_CLAUDE_AUTH = existsSync(join(home, "signed-in")) ? "in" : "inherited-api-key";
-// Signed out, a turn fails the way Claude Code's does.
-if (!existsSync(join(home, "signed-in"))) process.env.FAKE_CLAUDE_MODE = "not-logged-in";
-// Signed out, a one-shot call answers as the CLI does: the sign-in line, and a failure.
-const format = process.argv[process.argv.indexOf("--output-format") + 1];
-if (!existsSync(join(home, "signed-in")) && process.argv.includes("-p") && (format === "text" || format === "json")) {
-  process.stdout.write("Not logged in \\u00b7 Please run /login\\n");
-  process.exit(1);
-}
-process.env.FAKE_CLAUDE_ROUTER_PING = "1";
-process.env.FAKE_CLAUDE_EXIT_AFTER_TURN = "1";
-if (!["auth", "--version", "--help"].includes(process.argv[2] ?? "")) process.env.FAKE_CLAUDE_DUMP = join(home, "own-turn.json");
-await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-claude-cli.ts")).href)});
-`, { mode: 0o755 });
+  // The person's own engine: signed out until the test signs the person in,
+  // the way a DeepSeek key under the harness home signs one in. Every engine
+  // turn records its environment; the credit's engine never runs it.
+  const credential = join(home, ".dsh", ".env");
+  signIn = () => { mkdirSync(dirname(credential), { recursive: true }); writeFileSync(credential, "DEEPSEEK_API_KEY=sk-fixture\n"); };
+  signOut = () => rmSync(credential, { force: true });
   writeFileSync(join(data, "config.json"), JSON.stringify({
     instances: {
       // Pin the fleet's other defaults so this never probes an installed CLI.
       ...Object.fromEntries(["codex", "cursor", "githubCopilot", "openaiCompat", "qwen", "hermes", "pi"].map((id) => [id, { driver: "not-a-real-driver" }])),
-      claude: { driver: "claudeAgent", displayName: "Claude", config: { cli } },
+      claude: { driver: "deepseekAgent", displayName: "Claude", config: { cli: join(SERVER_DIR, "testing", "fake-acp-cli.ts") },
+        environment: { FAKE_ACP_MODELS: "fake-model", FAKE_ACP_DUMP: join(home, "own-turn.json"), FAKE_ACP_DUMP_PROMPT: "1", FAKE_ACP_TEXT_REPLY: "OK" } },
     },
   }));
   mkdirSync(join(home, "web"));
@@ -188,7 +165,8 @@ const moved = () => JSON.parse(readFileSync(join(data, "providers", "trial-credi
 async function turn(text: string, bot?: Bot): Promise<Bot> {
   const target = bot ?? (await bots())[0]!;
   const before = (await bots()).find((entry) => entry.id === target.id)!.messages.length;
-  expect((await api("POST", `/api/bots/${target.id}/messages`, { body: { text } })).status).toBe(202);
+  const sent = await api("POST", `/api/bots/${target.id}/messages`, { body: { text } });
+  expect(sent.status, sent.text).toBe(202);
   let settled: Bot | undefined;
   await expect.poll(async () => {
     settled = (await bots()).find((entry) => entry.id === target.id);
@@ -217,7 +195,8 @@ describe("the free trial's Claude credit on a Cloud home", { timeout: 90_000 }, 
     expect(completions().at(-1)).toMatchObject({ method: "POST", path: `${RELAY_PATH}/v1/chat/completions`, bearer: `Bearer ${TOKEN}`, model: "claude-sonnet-5" });
     expect(relayed.filter((request) => ![`${RELAY_PATH}/v1/models`, `${RELAY_PATH}/v1/chat/completions`, `${RELAY_PATH}/api/version`].includes(request.path))).toEqual([]);
     expect(relayed.every((request) => request.apiKey === "")).toBe(true);
-    expect(() => readFileSync(join(home, "own-turn.json"), "utf8")).toThrow();
+    // The fake CLI records a prompt only when one is sent, so this is the turn marker a probe cannot leave.
+    expect(() => readFileSync(join(home, "own-turn.json.prompt.json"), "utf8")).toThrow();
   });
 
   it("keeps its token to the relay: never saved, shown or logged", async () => {
@@ -237,7 +216,7 @@ describe("the free trial's Claude credit on a Cloud home", { timeout: 90_000 }, 
     expect(settled.modelSelection).toEqual(SONNET);
     expect(settled.messages.some((message) => message.tool?.name.startsWith("error:"))).toBe(false);
     expect(completions().at(-1)!.model).toBe("claude-sonnet-5");
-    expect(() => readFileSync(join(home, "own-turn.json"), "utf8")).toThrow();
+    expect(() => readFileSync(join(home, "own-turn.json.prompt.json"), "utf8")).toThrow();
     expect(moved()[created.body.bot.id]).toEqual({ instanceId: "claude", model: claudeModel });
   });
 
@@ -258,8 +237,8 @@ describe("the free trial's Claude credit on a Cloud home", { timeout: 90_000 }, 
     expect(answered(await turn("still here?", seeded))).toBe(true);
   });
 
-  it("once the person's own Claude can run, it takes over every bot, a copied one back on its own model, and the credit is not an engine for bots any more", async () => {
-    writeFileSync(join(home, "signed-in"), "");
+  it("once the person's own engine can run, it takes over every bot, a copied one back on its own model, and the credit is not an engine for bots any more", async () => {
+    signIn();
     // Reading the engines is where the server learns the person's own AI can run.
     await expect.poll(async () => (await instances()).find((instance) => instance.instanceId === "claude")?.snapshot.authenticated, { timeout: 15_000 }).toBe(true);
     expect((await credit())?.snapshot).toEqual({ state: "unavailable", reason: TRIAL_CREDIT_OWN_AI });
@@ -293,10 +272,9 @@ describe("the free trial's Claude credit on a Cloud home", { timeout: 90_000 }, 
       schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } } });
     expect(created.status, created.text).toBe(201);
     rmSync(join(home, "own-turn.json"), { force: true });
-    // Signing out in Settings is the whole request: nothing moves onto the credit in it, or after.
-    const signedOut = await api("POST", "/api/instances/claude/auth/sign-out", { body: {} });
-    expect(signedOut.status, signedOut.text).toBe(200);
-    expect((signedOut.body.instances as Instance[]).find((instance) => instance.instanceId === "claude")?.snapshot.authenticated).toBe(false);
+    // Signing out is deleting the key under the harness home: nothing moves onto the credit in it, or after.
+    signOut();
+    await expect.poll(async () => (await instances()).find((instance) => instance.instanceId === "claude")?.snapshot.authenticated, { timeout: 15_000 }).toBe(false);
     expect((await credit())?.snapshot.state).toBe("available");
     for (const bot of await bots()) expect(bot.modelSelection.instanceId).toBe("claude");
     // The routine is off and says why; the person's Chief has one quiet line about it, and nothing else is sent.
@@ -305,10 +283,10 @@ describe("the free trial's Claude credit on a Cloud home", { timeout: 90_000 }, 
     const paused = (await bots()).flatMap((bot) => bot.messages).filter((message) => message.tool?.name.startsWith("notice: Your routines are paused"));
     expect(paused).toHaveLength(1);
     const sent = completions().length;
-    const failed = await turn("still there?", copied);
-    expect(answered(failed)).toBe(false);
-    expect(failed.modelSelection.instanceId).toBe("claude");
+    // A keyless DeepSeek engine still answers (its gateway carries the key), but the relay never sees it and nothing moves.
+    await turn("still there?", copied);
     expect(completions()).toHaveLength(sent);
+    expect((await named("From the desktop")).modelSelection.instanceId).toBe("claude");
     expect(moved()).toEqual({});
   });
 

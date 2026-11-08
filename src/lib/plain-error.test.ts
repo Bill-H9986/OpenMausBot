@@ -63,10 +63,10 @@ describe("a provider refusing a message as too large", () => {
   it("is said in the reader's language with the model's name", () => {
     const cause = requestTooLargeMessage("GLM 5.3 Flash");
     expect(plainErrorLine(cause)).toBe(cause);
-    setLocale("de");
-    expect(plainErrorLine(cause)).toBe("Diese Nachricht ist zu groß für GLM 5.3 Flash. Starte einen neuen Chat oder wähle ein Modell, das mehr annimmt.");
-    setLocale("ja");
-    expect(plainErrorLine(`  ${requestTooLargeMessage("vendor/model-1.5")}\n`)).toBe("このメッセージは vendor/model-1.5 には大きすぎます。新しいチャットを始めるか、より多くを受け付けるモデルを選んでください。");
+    setLocale("zh");
+    expect(plainErrorLine(cause)).toBe("这条消息对 GLM 5.3 Flash 来说太大了。请开始新的对话，或选择能接受更多内容的模型。");
+    setLocale("zh");
+    expect(plainErrorLine(`  ${requestTooLargeMessage("vendor/model-1.5")}\n`)).toBe("这条消息对 vendor/model-1.5 来说太大了。请开始新的对话，或选择能接受更多内容的模型。");
     expect(plainErrorLine("This message is too large for the box.")).toBeUndefined();
   });
 });

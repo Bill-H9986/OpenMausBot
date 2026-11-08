@@ -143,9 +143,9 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     writeFileSync(join(data, "config.json"), JSON.stringify({
       signIn: { admins: [BOSS], members: [ADA, BOB] },
       instances: {
-        grok: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: false } },
+        grok: { driver: "deepseekAgent", environment: { FAKE_ACP_MODELS: "fake-model" }, config: { cli: FAKE_CLI, fullAuto: false } },
         // repeats its whole prompt back, so a test can read what a bot was told
-        grokecho: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "echo-gated" }, config: { cli: FAKE_CLI, fullAuto: false } },
+        grokecho: { driver: "deepseekAgent", environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_MODELS: "fake-model" }, config: { cli: FAKE_CLI, fullAuto: false } },
       },
     }));
     const role = (email: string) => (email === BOSS ? ["admin", "client"] as const : ["client"] as const);

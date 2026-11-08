@@ -1170,11 +1170,10 @@ describe("the bot settings dialog", () => {
     expect(ofType(rendered, BotPanel)).toBeUndefined();
     expect(rendered.html).not.toContain('id="bot-panel"');
     expect(rendered.html).toContain("Search settings");
-    for (const label of ["Overview", "Identity", "Soul", "Skills", "Memory", "Routines", "Access", "Model", "Permissions", "Voice &amp; alerts", "History", "Usage"]) {
+    for (const label of ["Overview", "Identity", "Soul", "Skills", "Memory", "Routines", "Access", "Model"]) {
       expect(rendered.html).toContain(`>${label}</span>`);
     }
-    // The accordion keeps the Memory and Access sections, where the memory, upkeep, browser and record-steps switches live.
-    for (const section of ["memory", "access", "model", "permissions"]) expect(rendered.html).toContain(`data-bot-settings-section="${section}"`);
+    for (const section of ["memory", "access", "model"]) expect(rendered.html).toContain(`data-bot-settings-section="${section}"`);
   });
 
   it("a stored section opens expanded in the full view", () => {

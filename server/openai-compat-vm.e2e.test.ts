@@ -129,12 +129,14 @@ beforeAll(async () => {
   writeFileSync(join(ui, "index.html"), "<title>openai-compat VM tools</title>");
   writeFileSync(join(ui, "assets", "test.css"), "body{}");
   writeFileSync(join(data, "config.json"), JSON.stringify({
+    // A setup card's answers are one more engine call at every new bot, taking replies a test scripts for its turns.
+    features: { smartSetupChoices: false },
     // Per-bot isolation: a fresh bot's VM is unseen until touched, so the strict pin cannot hide behind a warm cache entry.
     localVm: { mode: "per-bot" },
     instances: { claude: {
-      driver: "claudeAgent",
-      config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
-      environment: { FAKE_CLAUDE_DUMP: dumpFile },
+      driver: "deepseekAgent",
+      config: { cli: join(ROOT, "server/testing/fake-acp-cli.ts") },
+      environment: { FAKE_ACP_MODELS: "fake-model", FAKE_ACP_DUMP: dumpFile },
     } },
   }));
 
@@ -167,7 +169,7 @@ beforeAll(async () => {
   }, Boolean);
   await api("PATCH", "/api/config", { openaiCompat: { key: "fixture-key", url: `http://127.0.0.1:${upstreamPort}/v1`, model: "fixture-model" } });
   // Chief first makes the seeded bot its team's Chief, which answers a teammate's failed run with a Problems to look at turn
-  // of its own on Claude: its dump would stand in for the turn under test. Stepped down, each dump is the test's own.
+  // of its own: its dump would stand in for the turn under test. Stepped down, each dump is the test's own.
   const seeded = (await api("GET", "/api/bots?messages=0")).bots.find((bot: any) => bot.chiefOfStaff);
   await api("PATCH", `/api/bots/${seeded.id}`, { chiefOfStaff: false });
 });
@@ -243,17 +245,21 @@ describe("openai-compat Local VM tools", () => {
     }
   }, 60_000);
 
-  it("mounts the Local VM for a claudeAgent control on the same surface", async () => {
+  it("mounts the Local VM for a deepseekAgent control on the same surface", async () => {
     vmState({ containers: [] });
-    const { bot } = await api("POST", "/api/bots", { name: "claude strict vm" });
+    const { bot } = await api("POST", "/api/bots", { name: "acp strict vm" });
     await api("PATCH", `/api/bots/${bot.id}`, { computer: "vm" });
+    await api("PATCH", `/api/bots/${bot.id}/model`, { instanceId: "claude", model: "deepseek-official/deepseek-v4-flash" });
     await api("POST", `/api/bots/${bot.id}/messages`, { text: "Take a screenshot of the desktop." });
-    const dump = await until((): { mcpConfig?: { mcpServers?: Record<string, { env?: Record<string, string> }> } } | null => {
-      if (!existsSync(dumpFile)) return null;
-      try { return JSON.parse(readFileSync(dumpFile, "utf8")); } catch { return null; }
-    }, Boolean);
+    await until(() => existsSync(dumpFile), Boolean);
     await idle(bot.id);
-    expect(dump!.mcpConfig?.mcpServers?.computer).toBeTruthy();
-    expect(String(dump!.mcpConfig!.mcpServers!.computer.env?.OMB_CONTROL_URL ?? "")).toContain("127.0.0.1");
+    // The ACP fake records the session/new MCP servers in the dump it rewrites then.
+    const dump = JSON.parse(readFileSync(dumpFile, "utf8")) as {
+      mcpConfig?: { mcpServers?: Record<string, { env?: Array<{ name: string; value: string }> }> };
+    };
+    const computer = dump.mcpConfig?.mcpServers?.computer;
+    expect(computer).toBeTruthy();
+    const env = Object.fromEntries((computer?.env ?? []).map((pair) => [pair.name, pair.value]));
+    expect(String(env.OMB_CONTROL_URL ?? "")).toContain("127.0.0.1");
   }, 60_000);
 });

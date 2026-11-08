@@ -11,7 +11,7 @@ import { freePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
-const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
+const FAKE_CLI = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
 const REFUSED = "is not one of the bots";
 const TEST_CAPABILITY_KEY = "peer-allowlist-fixture-capability";
 
@@ -37,10 +37,10 @@ const api = async (
 };
 
 const fixture = (displayName: string, dump?: string) => ({
-  driver: "claudeAgent",
+  driver: "deepseekAgent",
   displayName,
-  environment: { FAKE_CLAUDE_MODE: "happy", ...(dump ? { FAKE_CLAUDE_DUMP: dump } : {}) },
-  config: { cli: FAKE_CLAUDE },
+  environment: { FAKE_ACP_MODELS: "fake-model", ...(dump ? { FAKE_ACP_DUMP: dump, FAKE_ACP_DUMP_PROMPT: "1" } : {}) },
+  config: { cli: FAKE_CLI },
 });
 
 beforeAll(async () => {
@@ -60,10 +60,10 @@ beforeAll(async () => {
       bound: fixture("Allow-listed fixture", boundDump),
       // Never finishes: a bot held mid-turn, the one moment its own shell could be the caller behind a loopback PATCH.
       stuck: {
-        driver: "claudeAgent",
+        driver: "deepseekAgent",
         displayName: "Stuck fixture",
-        environment: { FAKE_CLAUDE_MODE: "hang" },
-        config: { cli: FAKE_CLAUDE },
+        environment: { FAKE_ACP_MODE: "hang", FAKE_ACP_MODELS: "fake-model" },
+        config: { cli: FAKE_CLI },
       },
     },
   }));
@@ -105,16 +105,27 @@ afterAll(async () => {
 const createBot = async (name: string, instanceId: string) =>
   (await api("POST", "/api/bots", {
     name,
-    modelSelection: { instanceId, model: "claude-sonnet-5" },
+    modelSelection: { instanceId, model: "fake-model" },
     requireAvailableModel: true,
   })).body.bot;
 
-const readDump = (path: string) => (): { systemPrompt?: string; mcpConfig?: any } | undefined => {
+const readPrompt = (path: string): string | undefined => {
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
+    const blocks = JSON.parse(readFileSync(`${path}.prompt.json`, "utf8"));
+    return Array.isArray(blocks) ? blocks.map((block: any) => String(block?.text ?? "")).join("") : String(blocks ?? "");
   } catch {
     return undefined;
   }
+};
+const readMcp = (path: string) => (): any[] | undefined => {
+  try {
+    return JSON.parse(readFileSync(`${path}.mcp.json`, "utf8"));
+  } catch {
+    return undefined;
+  }
+};
+const clearDump = (path: string) => {
+  for (const file of [path, `${path}.prompt.json`, `${path}.mcp.json`, `${path}.session.json`]) rmSync(file, { force: true });
 };
 
 const botBusy = async (botId: string) => {
@@ -254,12 +265,11 @@ describe("peer allow-list", () => {
     const patch = await createBot("Patch", "plain");
 
     try {
-      rmSync(askerDump, { force: true });
+      clearDump(askerDump);
       expect((await api("POST", `/api/bots/${asker.id}/messages`, { text: "Warm up" })).status).toBe(202);
-      await expect.poll(() => readDump(askerDump)()?.systemPrompt, { timeout: 10_000 }).toBeTruthy();
-      const dump = readDump(askerDump)()!;
+      await expect.poll(() => readPrompt(askerDump), { timeout: 10_000 }).toBeTruthy();
 
-      const systemPrompt = String(dump.systemPrompt);
+      const systemPrompt = readPrompt(askerDump)!;
       expect(systemPrompt).toContain("[TEAM ROSTER]");
       expect(systemPrompt).toContain(`- Quill — General assistant (General) [id: ${quill.id}]`);
       expect(systemPrompt).toContain(`- Patch — General assistant (General) [id: ${patch.id}]`);
@@ -273,7 +283,7 @@ describe("peer allow-list", () => {
       expect(systemPrompt).not.toContain("create_bot");
       expect(systemPrompt).toContain("[/TEAM ROSTER] If a supported API key is missing");
 
-      const providerToken = String(dump.mcpConfig?.mcpServers?.agents?.env?.OMB_COMMS_TOKEN ?? "");
+      const providerToken = String(readMcp(askerDump)()?.find((server: any) => server?.name === "agents")?.env?.OMB_COMMS_TOKEN ?? "");
       expect(providerToken).toMatch(/^[a-f0-9]{48}$/);
       await expect.poll(() => botBusy(asker.id)).toBe(false);
       const token = await mintCapability(asker.id, asker.threadId);
@@ -343,9 +353,9 @@ describe("peer allow-list", () => {
     try {
       expect((await api("PATCH", `/api/bots/${bound.id}`, { peers: [near.id] })).status).toBe(200);
       expect((await api("POST", `/api/bots/${bound.id}/messages`, { text: "Warm up" })).status).toBe(202);
-      await expect.poll(() => readDump(boundDump)()?.systemPrompt, { timeout: 10_000 }).toBeTruthy();
+      await expect.poll(() => readPrompt(boundDump), { timeout: 10_000 }).toBeTruthy();
 
-      const systemPrompt = String(readDump(boundDump)()!.systemPrompt);
+      const systemPrompt = readPrompt(boundDump)!;
       expect(systemPrompt).toContain(`- Near — General assistant [id: ${near.id}]`);
       expect(systemPrompt).not.toContain("Farside");
     } finally {
@@ -363,10 +373,10 @@ describe("peer allow-list", () => {
     const helper = await createBot("Hedge", "plain");
 
     try {
-      rmSync(askerDump, { force: true });
+      clearDump(askerDump);
       await warmUp(asker.id);
-      await expect.poll(() => readDump(askerDump)()?.mcpConfig, { timeout: 10_000 }).toBeTruthy();
-      const providerToken = String(readDump(askerDump)()!.mcpConfig?.mcpServers?.agents?.env?.OMB_COMMS_TOKEN ?? "");
+      await expect.poll(() => readMcp(askerDump)(), { timeout: 10_000 }).toBeTruthy();
+      const providerToken = String(readMcp(askerDump)()?.find((server: any) => server?.name === "agents")?.env?.OMB_COMMS_TOKEN ?? "");
       expect(providerToken).toMatch(/^[a-f0-9]{48}$/);
       const token = await mintCapability(asker.id, asker.threadId);
       expect((await api("PATCH", `/api/bots/${asker.id}`, { approvePeerComms: true, approvalMode: "ask" })).status).toBe(200);

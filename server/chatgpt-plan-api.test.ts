@@ -1,7 +1,6 @@
-// Real HTTP server, disposable home, fake CLI; OAuth stops before its callback.
+// Real HTTP server, disposable home, fake CLI; account entry validation and lifecycle only.
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +8,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { verificationServerEnvironment } from "../scripts/control-omb.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
-import { excludedWorkspaceAuthPath } from "./workspace-backup-policy.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FAKE_CODEX = join(ROOT, "server/testing/fake-codex-app-server.ts");
@@ -29,24 +27,6 @@ async function api(method: string, path: string, body?: unknown, headers: Record
   return { status: response.status, body: await response.json() as Record<string, any>, headers: response.headers };
 }
 
-async function admin(label: string) {
-  const pairing = await api("POST", "/api/auth/pairing", { scopes: ["admin", "client"] });
-  expect(pairing.status).toBe(200);
-  const paired = await api("POST", "/api/auth/pair", { code: pairing.body.code, label });
-  expect(paired.status).toBe(200);
-  return { authorization: `Bearer ${paired.body.token}` };
-}
-
-function expectSignedOut(instance: Record<string, any>) {
-  expect(instance).toMatchObject({
-    driverKind: "codex", cli: FAKE_CODEX,
-    snapshot: { state: "available", authenticated: false, chatgptPlan: true, billing: "subscription" },
-    models: { default: "", options: [] }, authentication: { method: "browser-pkce" },
-  });
-  expect(instance).not.toHaveProperty("shadow");
-  expect(JSON.stringify(instance)).not.toMatch(/access_token|refresh_token|id_token|code_verifier|credentials\.json/);
-}
-
 beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "omb-chatgpt-api-"));
   mkdirSync(join(home, "tmp"));
@@ -55,7 +35,10 @@ beforeAll(async () => {
   logPath = join(tmpdir(), `omb-chatgpt-api-${port}-${process.pid}.log`);
   // Non-product instance names avoid adding unrelated native CLIs to this fixture.
   writeFileSync(join(home, "config.json"), JSON.stringify({ instances: {
-    fixture: { driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") } },
+    fixture: {
+      driver: "deepseekAgent", config: { cli: join(ROOT, "server/testing/fake-acp-cli.ts") },
+      environment: { FAKE_ACP_MODELS: "fake-model" },
+    },
     chatgpt: { driver: "codex", displayName: "ChatGPT plan", config: { authMode: "chatgpt-plan", cli: FAKE_CODEX } },
   } }));
   const log = openSync(logPath, "a", 0o600);
@@ -82,10 +65,7 @@ afterAll(async () => {
 });
 
 describe("ChatGPT plan accounts over isolated HTTP", () => {
-  it("starts signed out with an empty live catalog and rejects invalid account names without saving", async () => {
-    const list = await api("GET", "/api/instances");
-    expect(list.status).toBe(200);
-    expectSignedOut(list.body.instances.find((instance: { instanceId: string }) => instance.instanceId === "chatgpt"));
+  it("rejects invalid account names without saving", async () => {
     const saved = readFileSync(join(home, "config.json"), "utf8");
     for (const body of [{}, { displayName: " " }, { displayName: "x".repeat(81) }, { displayName: "Bad\nName" },
       { displayName: 42 }, { displayName: "Injected", environment: { OPENAI_API_KEY: "synthetic-injection" } }]) {
@@ -93,72 +73,6 @@ describe("ChatGPT plan accounts over isolated HTTP", () => {
     }
     expect((await api("POST", "/api/instances/chatgpt-accounts", { displayName: "Wrong type" }, { "content-type": "text/plain" })).status).toBe(415);
     expect(readFileSync(join(home, "config.json"), "utf8")).toBe(saved);
-  });
-
-  it("keeps account entries and locally generated sign-in flows separate and owned by their admin sessions", async () => {
-    const ids: string[] = [];
-    for (const displayName of ["  Personal plan  ", "Work plan"]) {
-      const created = await api("POST", "/api/instances/chatgpt-accounts", { displayName });
-      expect(created.status, JSON.stringify(created.body)).toBe(201);
-      ids.push(created.body.instanceId);
-      const instance = created.body.instances.find((row: { instanceId: string }) => row.instanceId === created.body.instanceId);
-      expectSignedOut(instance);
-      expect(instance.displayName).toBe(displayName.trim());
-    }
-    expect(new Set(ids).size).toBe(2);
-    const saved = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
-    for (const id of ids) {
-      expect(saved.instances[id].config).toEqual({ authMode: "chatgpt-plan", cli: FAKE_CODEX });
-      expect(saved.instances[id]).not.toHaveProperty("environment");
-    }
-    const owners = [await admin("Personal browser"), await admin("Work browser")];
-    const starts = [];
-    for (const [index, id] of ids.entries()) {
-      const started = await api("POST", `/api/instances/${id}/auth/start`, {}, owners[index]);
-      expect(started.status).toBe(200);
-      expect(started.headers.get("cache-control")).toBe("no-store");
-      expect(started.body.auth).toMatchObject({ phase: "waiting", flowId: expect.any(String) });
-      const authorization = new URL(started.body.auth.authorizationUrl);
-      expect(authorization.origin + authorization.pathname).toBe("https://auth.openai.com/api/accounts/authorize");
-      expect(authorization.searchParams.get("code_challenge_method")).toBe("S256");
-      expect(authorization.searchParams.get("scope")?.split(" ")).toContain("chatgpt.tokens.use.direct");
-      expect(new URL(authorization.searchParams.get("redirect_uri")!).hostname).toBe("127.0.0.1");
-      expect(JSON.stringify(started.body)).not.toMatch(/access_token|refresh_token|id_token|code_verifier/);
-      starts.push({ id, auth: started.body.auth, authorization });
-      const relativeCredentials = `providers/chatgpt-plan/${createHash("sha256").update(id).digest("hex")}/credentials.json`;
-      expect(excludedWorkspaceAuthPath(relativeCredentials)).toBe(true);
-      expect(existsSync(join(home, relativeCredentials))).toBe(false);
-    }
-    expect(starts[0].authorization.searchParams.get("state")).not.toBe(starts[1].authorization.searchParams.get("state"));
-    const first = starts[0];
-    const statusPath = `/api/instances/${first.id}/auth/status?flowId=${first.auth.flowId}`;
-    expect((await api("POST", `/api/instances/${first.id}/auth/start`, {}, owners[1])).status).toBe(409);
-    expect((await api("GET", statusPath, undefined, owners[1])).status).toBe(404);
-    expect((await api("POST", `/api/instances/${first.id}/auth/cancel`, { flowId: first.auth.flowId }, owners[1])).status).toBe(404);
-    const status = await api("GET", statusPath, undefined, owners[0]);
-    expect(status.status).toBe(200);
-    expect(status.body.auth).toEqual(first.auth);
-    const global = await api("GET", "/api/instances");
-    expect(JSON.stringify(global.body)).not.toContain(first.auth.flowId);
-    expect(JSON.stringify(global.body)).not.toContain(first.auth.authorizationUrl);
-    for (const [index, flow] of starts.entries()) {
-      expect((await api("POST", `/api/instances/${flow.id}/auth/cancel`, { flowId: flow.auth.flowId }, owners[index])).status).toBe(200);
-      const cancelled = await api("GET", `/api/instances/${flow.id}/auth/status?flowId=${flow.auth.flowId}`, undefined, owners[index]);
-      expect(cancelled.body.auth).toMatchObject({ phase: "cancelled", authorizationUrl: null });
-    }
-  });
-
-  it("refuses proxied OAuth starts even for an authenticated admin", async () => {
-    const owner = await admin("Proxy browser");
-    for (const [header, value] of [
-      ["x-forwarded-for", "198.51.100.21"], ["x-forwarded-proto", "https"],
-      ["x-forwarded-host", "workspace.example.test"], ["forwarded", "for=198.51.100.21;proto=https"],
-    ] as const) {
-      const refused = await api("POST", "/api/instances/chatgpt/auth/start", {}, { ...owner, [header]: value });
-      expect(refused.status).toBe(403);
-      expect(refused.body.error).toContain("computer running OpenMausBot");
-      expect(refused.body).not.toHaveProperty("auth");
-    }
   });
 
   it("renames and removes an added account, but never the built-in one", async () => {

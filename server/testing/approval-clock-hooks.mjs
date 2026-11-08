@@ -7,15 +7,7 @@ if (!dataDir || dataDir !== process.env.HOME || process.env.OMB_TEST_APPROVAL_CL
   throw new Error('The approval clock requires an explicitly isolated fixture');
 }
 const marker = join(dataDir, 'expire-approvals');
-registerHooks({
-  load(url, context, nextLoad) {
-    const result = nextLoad(url, context);
-    if (!url.endsWith('/server/drivers/claude.ts')) return result;
-    const source = String(result.source);
-    // The broker's one timer is the only setTimeout in its scope.
-    const anchor = 'const timeoutMs = opts.timeoutMs ?? 15 * 60_000;';
-    if (source.split(anchor).length !== 2) throw new Error('Claude permission broker timer seam changed');
-    return { ...result, source: `
+const fixtureTimeout = `
       import { existsSync as approvalMarkerExists } from 'node:fs';
       function approvalFixtureTimeout(callback, _delay) {
         const timer = setInterval(() => {
@@ -25,6 +17,24 @@ registerHooks({
         }, 25);
         return timer;
       }
-    ` + source.replace(anchor, `${anchor} const setTimeout = approvalFixtureTimeout;`) };
+    `;
+registerHooks({
+  load(url, context, nextLoad) {
+    const result = nextLoad(url, context);
+    if (url.endsWith('/server/drivers/claude.ts')) {
+      const source = String(result.source);
+      // The broker's one timer is the only setTimeout in its scope.
+      const anchor = 'const timeoutMs = opts.timeoutMs ?? 15 * 60_000;';
+      if (source.split(anchor).length !== 2) throw new Error('Claude permission broker timer seam changed');
+      return { ...result, source: fixtureTimeout + source.replace(anchor, `${anchor} const setTimeout = approvalFixtureTimeout;`) };
+    }
+    if (url.endsWith('/server/drivers/acp/core.ts')) {
+      const source = String(result.source);
+      // The ACP broker's one deadline call, by its exact shape; every other core timing stays real.
+      const anchor = 'const timer = setTimeout(() => {';
+      if (source.split(anchor).length !== 2) throw new Error('ACP permission broker timer seam changed');
+      return { ...result, source: fixtureTimeout + source.replace(anchor, 'const timer = approvalFixtureTimeout(() => {') };
+    }
+    return result;
   },
 });

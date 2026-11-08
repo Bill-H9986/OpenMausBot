@@ -47,9 +47,9 @@ beforeEach(() => {
 afterEach(() => { flushSync(() => root.unmount()); container.remove(); vi.unstubAllGlobals(); delete window.ogb; setLocale("en"); });
 
 describe("bot menu bulk reads", () => {
-  it("remains available with the full thread tree hidden, including Portuguese copy", () => {
-    setLocale("pt-br"); draw();
-    expect(button("Marcar todas as conversas como lidas").disabled).toBe(false);
+  it("remains available with the full thread tree hidden, including Chinese copy", () => {
+    setLocale("zh"); draw();
+    expect(button("将所有对话标记为已读").disabled).toBe(false);
   });
 
   it("disables the action when there is no unread conversation", () => {

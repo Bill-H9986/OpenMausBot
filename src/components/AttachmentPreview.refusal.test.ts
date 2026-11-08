@@ -58,16 +58,16 @@ describe("a message image that fails", () => {
   });
 
   it("speaks the person's language", async () => {
-    setLocale("de");
+    setLocale("zh");
     failWith(refused());
-    await vi.waitFor(() => expect(host.textContent).toContain("Dieses Bild liegt außerhalb des Arbeitsordners dieses Chats"));
+    await vi.waitFor(() => expect(host.textContent).toContain("这张图片不在此聊天的工作文件夹中，因此无法在这里显示"));
   });
 
   it("says Image unavailable in the person's language too", async () => {
-    setLocale("de");
+    setLocale("zh");
     failWith(new Response("{}", { status: 404 }));
-    await vi.waitFor(() => expect(host.textContent).toContain("Bild nicht verfügbar"));
-    expect(host.textContent).toContain("Erneut versuchen");
+    await vi.waitFor(() => expect(host.textContent).toContain("图片不可用"));
+    expect(host.textContent).toContain("重试");
   });
 
   it("asks only when told it is a message image", async () => {

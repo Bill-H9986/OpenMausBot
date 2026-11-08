@@ -7,6 +7,18 @@ import { fetchOutputs, newReport, shareFolder } from "./cloud-sync-engine.mjs";
 import { openSyncState } from "./cloud-sync-state.mjs";
 import { fakeCloud } from "./fixtures/cloud-sync-fake-cloud.mjs";
 
+const canSymlink = (() => {
+  const probe = mkdtempSync(join(tmpdir(), "omb-symlink-probe-"));
+  try {
+    symlinkSync(join(probe, "target"), join(probe, "link"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
+
 const AT = new Date(2026, 9, 15, 12).getTime();
 const GB = 1024 ** 3;
 function setup(t, options = {}) {
@@ -77,7 +89,7 @@ test("shared: Remove from My Cloud carries the deletes out", async (t) => {
   assert.equal(s.cloud.get("f1", "a.txt"), undefined);
 });
 
-test("shared: a missing folder, a link and a hard-linked file never read as deleted", async (t) => {
+test("shared: a missing folder, a link and a hard-linked file never read as deleted", { skip: canSymlink ? false : "symlinks need a privilege this host lacks" }, async (t) => {
   const s = setup(t);
   s.write("a.txt", "a");
   s.write("b.txt", "b");

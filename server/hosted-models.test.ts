@@ -53,7 +53,7 @@ it.each([{ variant: "high" }, { effort: "high" as const }])("preserves an assign
 
 it("locks native and OpenRouter instances to assigned catalogs and fixed gateway routes", async () => {
   const root = directory(), policy = hostedModelPolicy(root, { ...env(),
-    OMB_HOSTED_CLAUDE_CLI: join(import.meta.dirname, "testing/fake-claude-cli.ts"),
+    OMB_HOSTED_CLAUDE_CLI: join(import.meta.dirname, "testing/fake-acp-cli.ts"),
     OMB_HOSTED_CODEX_CLI: join(import.meta.dirname, "testing/fake-codex-app-server.ts"),
   })!;
   const configs = policy.configs();

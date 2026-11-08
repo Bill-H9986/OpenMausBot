@@ -3913,21 +3913,25 @@ describe("routine paths that cannot exist where the routine runs", () => {
 });
 
 describe("turning a schedule back on, and a deleted bot's schedules", () => {
-  const start = new Date(2026, 7, 17, 8, 0, 0).getTime();
+  // Computed per test: an earlier stubEnv("TZ") in this file can outlive its test, and the anchor must
+  // stay in the same time zone as the expectations each test writes.
+  const start = () => new Date(2026, 7, 17, 8, 0, 0).getTime();
   const once = (at: number) => ({ name: "Reminder", prompt: "Remind me", botId: "maus-1", schedule: { type: "once" as const, at } });
 
   it("turns a paused schedule back on with its next occurrence", () => {
-    const h = harness(start);
+    const s = start();
+    const h = harness(s);
     const routine = h.manager.create({ name: "Daily", prompt: "Summarize", botId: "maus-1", schedule: { type: "daily", time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] } });
     expect(h.manager.update(routine.id, { enabled: false })).toMatchObject({ enabled: false, nextRunAt: null });
-    h.setNow(start + 3 * 60 * 60_000);
+    h.setNow(s + 3 * 60 * 60_000);
     expect(h.manager.update(routine.id, { enabled: true })).toMatchObject({ enabled: true, nextRunAt: new Date(2026, 7, 18, 9, 0).getTime() });
   });
 
   it("refuses to turn a one-time schedule back on once its time has passed, instead of running it again and switching itself off", async () => {
-    const h = harness(start);
-    const ran = h.manager.create(once(start + 60_000));
-    h.setNow(start + 60_000);
+    const s = start();
+    const h = harness(s);
+    const ran = h.manager.create(once(s + 60_000));
+    h.setNow(s + 60_000);
     await h.manager.tick();
     expect(h.started).toHaveLength(1);
     expect(h.manager.listRoutines().find((routine) => routine.id === ran.id)).toMatchObject({ enabled: false });
@@ -3936,15 +3940,15 @@ describe("turning a schedule back on, and a deleted bot's schedules", () => {
     await h.manager.tick();
     expect(h.started).toHaveLength(1);
     // A new time turns it back on.
-    expect(h.manager.update(ran.id, { enabled: true, schedule: { type: "once", at: start + 60 * 60_000 } })).toMatchObject({ enabled: true, nextRunAt: start + 60 * 60_000 });
+    expect(h.manager.update(ran.id, { enabled: true, schedule: { type: "once", at: s + 60 * 60_000 } })).toMatchObject({ enabled: true, nextRunAt: s + 60 * 60_000 });
     // Paused before its time and turned on again before it: fine.
-    const later = h.manager.create(once(start + 2 * 60 * 60_000));
+    const later = h.manager.create(once(s + 2 * 60 * 60_000));
     h.manager.update(later.id, { enabled: false });
-    expect(h.manager.update(later.id, { enabled: true })).toMatchObject({ enabled: true, nextRunAt: start + 2 * 60 * 60_000 });
+    expect(h.manager.update(later.id, { enabled: true })).toMatchObject({ enabled: true, nextRunAt: s + 2 * 60 * 60_000 });
   });
 
   it("removes a deleted bot's schedules, stops its unfinished runs and drops its run history, leaving other bots' alone", async () => {
-    const h = harness(start);
+    const h = harness(start());
     const daily = { type: "daily" as const, time: "23:59", weekdays: [1] };
     const gone = h.manager.create({ name: "Gone", prompt: "Work", botId: "maus-1", schedule: daily });
     const goneToo = h.manager.create({ name: "Gone too", prompt: "Work", botId: "maus-1", enabled: false, schedule: daily });
@@ -3964,10 +3968,11 @@ describe("turning a schedule back on, and a deleted bot's schedules", () => {
   });
 
   it("never starts a due schedule whose bot no longer exists", async () => {
-    const h = harness(start);
-    h.manager.create(once(start + 60_000));
+    const s = start();
+    const h = harness(s);
+    h.manager.create(once(s + 60_000));
     h.setBot("missing");
-    h.setNow(start + 60_000);
+    h.setNow(s + 60_000);
     await h.manager.tick();
     expect(h.manager.listRuns()).toEqual([]);
     expect(h.started).toEqual([]);

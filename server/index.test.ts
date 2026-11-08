@@ -37,7 +37,7 @@ import {
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
-const FAKE_CLAUDE_CLI = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
+const FAKE_ACP_CLI = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
 const FAKE_MCP_SERVER = join(SERVER_DIR, "testing", "fake-mcp-server.ts");
 const PORT = 18800 + Math.floor(Math.random() * 10_000);
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -159,13 +159,10 @@ let managedBoatDeleteRemovesRow = true;
 let home: string;
 let staticDir: string;
 let fakeClaudeDump: string;
-let fakeClaudePrompts: string;
 /** While this file exists, the hanging fake engine ends its turn normally: a finished turn, never a Stop. */
 let fakeClaudeRelease: string;
 let oneShotTextFile: string;
-let oneShotTextDump: string;
 let setupAnswersFile: string;
-let setupAnswersDump: string;
 let fakeDockerFixture: string;
 let fakeVpsFixture: string;
 let fakeDockerLog: string;
@@ -334,14 +331,27 @@ const delayedJsonBody = async (
   };
 };
 
-const claudePrompts = (file = fakeClaudePrompts): string[] =>
-  existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : [];
+const claudePrompts = (file = fakeClaudeDump + ".prompts.jsonl"): string[] =>
+  existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line).text ?? "") : [];
 const COMPUTER_FREE_NOTE = "OpenMausBot computer update: the computer this conversation waited for is free again. Continue the task that parked waiting for it.";
 
+/** The fake ACP's <dump>.mcp.json sidecar: the session/new mcpServers array. */
+type AcpMcpEntry = { name: string; command?: string; args?: string[]; env?: Record<string, string> };
+function mcpServersOf(file: string): AcpMcpEntry[] {
+  return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as AcpMcpEntry[]) : [];
+}
+/** Clear a dump and every sidecar the fake ACP writes beside it. */
+const clearDumps = (file: string) => {
+  for (const suffix of ["", ".mcp.json", ".prompt.json", ".prompts.jsonl", ".session.json", ".config.json", ".selection.json"]) rmSync(file + suffix, { force: true });
+};
+const computerMcpEntry = async (file = fakeClaudeDump + ".mcp.json") => {
+  await expect.poll(() => mcpServersOf(file).some((entry) => entry.name === "computer"), { timeout: 10_000 }).toBe(true);
+  return mcpServersOf(file).find((entry) => entry.name === "computer")!;
+};
 /** The running turn's first screen call, which is what takes a cloud computer; the answer waits while another turn has it. */
 const reachForComputer = async () => {
-  const dump = await readJsonFileWhenReady<{ mcpConfig: { mcpServers: { computer: { env: Record<string, string> } } } }>(fakeClaudeDump);
-  const env = dump.mcpConfig.mcpServers.computer.env;
+  const entry = await computerMcpEntry();
+  const env = entry.env ?? {};
   return fetch(`${env.OMB_HARNESS_URL}/api/internal/computer/mcp`, {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${env.OMB_MCP_TOKEN_COMPUTER}` },
     body: JSON.stringify({ method: "tools/call", params: { name: "screenshot", arguments: {} } }),
@@ -401,12 +411,9 @@ beforeAll(async () => {
   writeFileSync(join(home, "fake-agent-browser"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   staticDir = join(home, "static");
   fakeClaudeDump = join(home, "fake-claude-dump.json");
-  fakeClaudePrompts = join(home, "fake-claude-prompts.jsonl");
   fakeClaudeRelease = join(home, "fake-claude-release");
   oneShotTextFile = join(home, "fake-claude-one-shot.txt");
-  oneShotTextDump = join(home, "fake-claude-one-shot-dump.json");
   setupAnswersFile = join(home, "fake-claude-setup-answers.txt");
-  setupAnswersDump = join(home, "fake-claude-setup-answers-dump.json");
   const fakeDockerDir = join(home, "fake-docker-bin");
   const fakeDockerProgram = join(fakeDockerDir, "docker-empty.mjs");
   fakeDockerFixture = join(home, ".openmausbot", "fake-unmanaged-container");
@@ -470,11 +477,11 @@ beforeAll(async () => {
   writeFileSync(
     join(home, ".openmausbot", "config.json"),
     JSON.stringify({
-      // generated titles are opt-in; this suite owns the one-shot's reply file (FAKE_CLAUDE_TEXT_FILE below); the setup card's tests turn its answers on
+      // generated titles are opt-in; this suite owns the one-shot's reply file (FAKE_ACP_REPLY_FILE below); the setup card's tests turn its answers on
       features: { llmThreadTitles: true, browser: false, smartSetupChoices: false },
       instances: {
         ghost: { driver: "not-a-real-driver", displayName: "Ghost" },
-        claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } },
+        claude: { driver: "deepseekAgent", displayName: "Fixture Claude", config: { cli: FAKE_ACP_CLI }, environment: { FAKE_ACP_MODELS: "fake-model" } },
         // A known Codex target keeps the approval-mode routes on the trusted desktop boundary; its missing CLI keeps it unselected.
         codex: { driver: "codex", displayName: "Fixture Codex", config: { cli: join(home, "missing-codex") } },
         // A live engine without computer tools (no key, so never available): places that need a computer refuse it.
@@ -591,7 +598,7 @@ beforeAll(async () => {
         notifications: true,
         color: "purple",
         unread: false,
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
         resumeCursors: {},
         createdAt: 1,
         tasks: [{
@@ -600,7 +607,7 @@ beforeAll(async () => {
           createdAt: 1,
           updatedAt: 1,
           resumeCursors: {},
-          modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+          modelSelection: { instanceId: "claude", model: "fake-model" },
           unread: false,
         }],
       },
@@ -1251,17 +1258,13 @@ beforeAll(async () => {
       OMB_AGENT_BROWSER_PATH: join(home, "fake-agent-browser"),
       // Production uses 15 s; the real timer path stays, but fast.
       OMB_SSE_HEARTBEAT_MS: "50",
-      FAKE_CLAUDE_MODE: "hang",
-      FAKE_CLAUDE_DUMP: fakeClaudeDump,
-      FAKE_CLAUDE_PROMPTS: fakeClaudePrompts,
-      FAKE_CLAUDE_RELEASE: fakeClaudeRelease,
-      // The one-shot text helper fails until a test writes its reply file, and its dump never overwrites a turn's.
-      FAKE_CLAUDE_TEXT_FILE: oneShotTextFile,
-      FAKE_CLAUDE_TEXT_DUMP: oneShotTextDump,
-      FAKE_CLAUDE_SETUP_FILE: setupAnswersFile,
-      FAKE_CLAUDE_SETUP_DUMP: setupAnswersDump,
-      // the real CLI runs Manual for these even when asked for auto
-      FAKE_CLAUDE_AUTO_UNAVAILABLE_MODELS: "claude-haiku-4-5",
+      FAKE_ACP_RELEASE_FILE: fakeClaudeRelease,
+      FAKE_ACP_DUMP: fakeClaudeDump,
+      // prompt and mcp sidecars beside the dump: <dump>.prompt.json, <dump>.mcp.json, <dump>.prompts.jsonl
+      FAKE_ACP_DUMP_PROMPT: "1",
+      // The one-shot title waits for its reply file; a setup card's answers wait in their own file.
+      FAKE_ACP_REPLY_FILE: oneShotTextFile,
+      FAKE_ACP_SETUP_FILE: setupAnswersFile,
       OMB_TEST_INTERNAL_CAPABILITY_KEY: TEST_CAPABILITY_KEY,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -1354,7 +1357,7 @@ describe("harness HTTP API", () => {
     writeFileSync(join(isolatedStatic, "assets", "smoke.css"), "body{}");
     writeFileSync(join(isolatedData, "config.json"), JSON.stringify({
       instances: {
-        claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } },
+        claude: { driver: "deepseekAgent", displayName: "Fixture Claude", config: { cli: FAKE_ACP_CLI }, environment: { FAKE_ACP_MODELS: "fake-model" } },
       },
     }));
 
@@ -1372,9 +1375,8 @@ describe("harness HTTP API", () => {
           OMB_PORT: String(isolatedPort),
           OMB_WEBHOOK_PORT: String(isolatedPort + 1),
           OMB_STATIC_DIR: isolatedStatic,
-          FAKE_CLAUDE_MODE: "hang",
-          FAKE_CLAUDE_DUMP: isolatedDump,
-          FAKE_CLAUDE_FINISH_GATE: isolatedFinishGate,
+          FAKE_ACP_RELEASE_FILE: isolatedFinishGate,
+          FAKE_ACP_DUMP: isolatedDump,
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -1401,7 +1403,7 @@ describe("harness HTTP API", () => {
       await waitForIsolatedServer(server.child, isolatedPort, server.stderr);
       const created = await isolatedApi("POST", "/api/bots", {
         name: "Restart question holder",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
         requireAvailableModel: true,
       });
       expect(created.status).toBe(201);
@@ -1600,7 +1602,7 @@ describe("harness HTTP API", () => {
   it("attributes a paired person's message to them, and leaves the owner's own sends unstamped", async () => {
     const created = await api("POST", "/api/bots", {
       name: "Attribution",
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
@@ -1623,7 +1625,7 @@ describe("harness HTTP API", () => {
     // A second bot, so this owner send cannot be folded into the turn above by a steer.
     const second = await api("POST", "/api/bots", {
       name: "Attribution owner",
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     });
     expect(second.status).toBe(201);
@@ -2096,7 +2098,7 @@ describe("harness HTTP API", () => {
 
   it("returns the canonical stored user message for direct and channel sends", async () => {
     const created = await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
@@ -2161,7 +2163,7 @@ describe("harness HTTP API", () => {
 
   it("deduplicates direct send retries by sendId, including after the accepted task becomes inactive", async () => {
     const created = await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
@@ -2237,7 +2239,7 @@ describe("harness HTTP API", () => {
   it("replaces a first-message snippet title with a generated one once the one-shot answers", async () => {
     writeFileSync(oneShotTextFile, "Fix login timeout\n");
     const created = await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
@@ -2263,22 +2265,18 @@ describe("harness HTTP API", () => {
   it("keeps the snippet title when the one-shot fails", async () => {
     rmSync(oneShotTextFile, { force: true });
     const created = await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
     const bot = created.body.bot;
     try {
       const firstMessage = "summarize the deploy notes";
-      rmSync(oneShotTextDump, { force: true });
+      clearDumps(fakeClaudeDump);
       const sent = await api("POST", `/api/bots/${bot.id}/messages`, { text: firstMessage });
       expect(sent.status).toBe(202);
-      await expect.poll(() => existsSync(oneShotTextDump), { timeout: 5_000 }).toBe(true);
-      const seen = JSON.parse(readFileSync(oneShotTextDump, "utf8"));
-      const outputAt = seen.argv.indexOf("--output-format");
-      expect(outputAt).toBeGreaterThan(-1);
-      expect(seen.argv[outputAt + 1]).toBe("text");
-      expect(seen.prompt).toContain("Name the conversation");
+      const seen = await readJsonFileWhenReady<{ prompt: unknown }>(fakeClaudeDump + ".prompt.json");
+      expect(JSON.stringify(seen.prompt)).toContain("Name the conversation");
       await new Promise((resolve) => setTimeout(resolve, 150));
       const state = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,
@@ -2294,7 +2292,7 @@ describe("harness HTTP API", () => {
   it("replaces a channel task's first-message snippet with a generated title", async () => {
     writeFileSync(oneShotTextFile, "Fix login timeout\n");
     const created = await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
@@ -2326,7 +2324,7 @@ describe("harness HTTP API", () => {
   it("keeps a channel task's snippet title when the one-shot fails", async () => {
     rmSync(oneShotTextFile, { force: true });
     const created = await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
@@ -2350,13 +2348,12 @@ describe("harness HTTP API", () => {
       expect(uploaded.status).toBe(201);
       const { path: imagePath } = await uploaded.json() as { path: string };
       const text = `${firstMessage}\n\n<attached-image path="${imagePath}" name="tiny.png" />`;
-      rmSync(oneShotTextDump, { force: true });
+      clearDumps(fakeClaudeDump);
       const sent = await api("POST", `/api/groups/${room.id}/messages`, { text });
       expect(sent.status).toBe(202);
-      await expect.poll(() => existsSync(oneShotTextDump), { timeout: 5_000 }).toBe(true);
-      const seen = JSON.parse(readFileSync(oneShotTextDump, "utf8"));
-      expect(seen.prompt).toContain(firstMessage);
-      expect(seen.prompt).not.toContain("attached-image");
+      const seen = await readJsonFileWhenReady<{ prompt: unknown }>(fakeClaudeDump + ".prompt.json");
+      expect(JSON.stringify(seen.prompt)).toContain(firstMessage);
+      expect(JSON.stringify(seen.prompt)).not.toContain("attached-image");
       await new Promise((resolve) => setTimeout(resolve, 150));
       const state = (await api("GET", "/api/bots?messages=0")).body.groups.find(
         (candidate: { id: string }) => candidate.id === room.id,
@@ -2522,11 +2519,11 @@ describe("harness HTTP API", () => {
         section: "Channel creation test",
         chiefOfStaff: true,
         approvalMode: "ask",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       });
       expect(selected.status).toBe(200);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${chief.id}/messages`, { text: "prepare the team" })).status).toBe(202);
       const dump = z.object({
         mcpConfig: z.object({
@@ -2682,7 +2679,7 @@ describe("harness HTTP API", () => {
       for (let count = 2; count <= 4; count += 1) expect((await manage({ action: "new_thread" })).status).toBe(201);
       expect((await manage({ action: "new_thread", name: "Fifth thread" })).status).toBe(429);
       expect((await api("GET", "/api/bots?messages=0")).body.bots.find((bot: { id: string }) => bot.id === foreign.id).section).toBe(`${section} foreign`);
-      expect((await api("PATCH", `/api/bots/${chief.id}`, { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${chief.id}`, { modelSelection: { instanceId: "claude", model: "fake-model" } })).status).toBe(200);
       const busyToken = await mintTestCapability(BASE, chief.id, chief.threadId);
       expect((await api("POST", `/api/groups/${roomId}/messages`, { text: "Hold this room turn" })).status).toBe(202);
       await expect.poll(async () => (await readRoom()).working).toBe(true);
@@ -3376,7 +3373,7 @@ describe("harness HTTP API", () => {
     try {
       expect((await api("PUT", "/api/config", { box: { token: "box_route" } })).status).toBe(200);
       const bot = (await api("POST", "/api/bots", { name: "Computer fixture bot", section,
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).body.bot;
+        modelSelection: { instanceId: "claude", model: "fake-model" } })).body.bot;
       botId = bot.id;
       expect((await api("PATCH", `/api/bots/${bot.id}`, { computer: "off" })).status).toBe(200);
       boatRouteCalls.length = 0;
@@ -3436,7 +3433,7 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/team-computers/${requestId}`, { section })).status).toBe(400);
       expect((await api("PATCH", `/api/team-computers/${requestId}`, { section: "No such fixture team", acknowledgeSharedAccess: true })).status).toBe(404);
       expect((await record()).section).toBeNull();
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hold assignment until this turn stops" })).status).toBe(202);
       await readJsonFileWhenReady(fakeClaudeDump);
       boatRouteCalls.length = 0;
@@ -3483,7 +3480,7 @@ describe("harness HTTP API", () => {
       managedBoatCreateName = "";
       managedBoatCreateBodies.length = 0;
       boatRouteCalls.length = 0;
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
     }
   }, 30_000);
 
@@ -3520,7 +3517,7 @@ describe("harness HTTP API", () => {
       expect((await api("PUT", "/api/config", { box: { token: "box_route" } })).status).toBe(200);
       for (const name of ["Direct shared", "Room shared", "Explicit off"]) {
         const bot = (await api("POST", "/api/bots", { name, section,
-          modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).body.bot;
+          modelSelection: { instanceId: "claude", model: "fake-model" } })).body.bot;
         botIds.push(bot.id);
       }
       expect((await api("PATCH", `/api/bots/${botIds[2]}`, { computer: "off" })).status).toBe(200);
@@ -3536,7 +3533,7 @@ describe("harness HTTP API", () => {
       roomId = room.id;
       const createCount = boatRouteCalls.filter(call => call.method === "POST" && call.path === "/sandboxes").length;
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${botIds[2]}/messages`, { text: "explicitly no desktop" })).status).toBe(202);
       expect((await readJsonFileWhenReady<ComputerDump>(fakeClaudeDump)).mcpConfig.mcpServers.computer).toBeUndefined();
       expect((await api("POST", `/api/bots/${botIds[2]}/interrupt`, {})).status).toBe(200);
@@ -3549,7 +3546,7 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/team-computers/${requestId}`, { section: null, acknowledgeSharedAccess: true })).status).toBe(409);
       expect((await api("POST", `/api/bots/${botIds[0]}/computer/control`, { action: "release" })).status).toBe(200);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${botIds[0]}/messages`, { text: "hold the shared desktop" })).status).toBe(202);
       await promptedOnTeamComputer(1, botIds[0]);
       expect((await readJsonFileWhenReady<ComputerDump>(fakeClaudeDump)).mcpConfig.mcpServers.computer?.args)
@@ -3557,7 +3554,7 @@ describe("harness HTTP API", () => {
       await reachForComputer();
       const firstThread = (await api("GET", "/api/bots?messages=0")).body.bots.find((b: { id: string }) => b.id === botIds[0]).threadId;
       const sibling = (await api("POST", `/api/bots/${botIds[0]}/tasks`, { title: "Waiting sibling" })).body.task;
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${botIds[0]}/messages`, { text: "wait then cancel", threadId: sibling.threadId })).status).toBe(202);
       void reachForComputer();
       await expect.poll(async () => JSON.stringify((await api("GET", `/api/threads/${sibling.threadId}/messages`)).body),
@@ -3589,7 +3586,7 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/team-computers/${requestId}`, { section: null, acknowledgeSharedAccess: true })).status).toBe(409);
       expect((await api("PATCH", `/api/bots/${botIds[0]}`, { computer: "off" })).status).toBe(409);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/groups/${roomId}/messages`, { text: "use the occupied shared desktop" })).status).toBe(202);
       void reachForComputer();
       await expect.poll(async () => JSON.stringify((await api("GET", "/api/bots?messages=30")).body.groups.find(
@@ -3621,7 +3618,7 @@ describe("harness HTTP API", () => {
 
       managedBoatRows = [];
       managedBoatCreatedIds.clear();
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${botIds[0]}/messages`, { text: "do not create a replacement" })).status).toBe(202);
       void reachForComputer();
       await expect.poll(async () => JSON.stringify((await api("GET", "/api/bots?messages=30")).body.bots.find(
@@ -3643,7 +3640,7 @@ describe("harness HTTP API", () => {
       managedBoatCreateId = "bx_cdefghjk";
       managedBoatCreateName = "";
       boatRouteCalls.length = 0;
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
     }
   }, 30_000);
 
@@ -3658,7 +3655,7 @@ describe("harness HTTP API", () => {
       // Four live threads on one bot: on a small machine's default of 3 the fourth would park in the send queue instead.
       expect((await api("PUT", "/api/config", { threads: { maxConcurrentPerBot: 6 } })).status).toBe(200);
       const bot = (await api("POST", "/api/bots", { name: "Queue probe", section,
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).body.bot;
+        modelSelection: { instanceId: "claude", model: "fake-model" } })).body.bot;
       botId = bot.id;
       // Each task message moves the active-thread pointer, so Stop must name the holder's thread.
       holderThread = bot.threadId;
@@ -3675,7 +3672,7 @@ describe("harness HTTP API", () => {
         (((await api("GET", `/api/threads/${threadId}/events`)).body.entries as Array<{ kind: string; data: any }>)
           .filter(entry => entry.kind === "runtime").map(entry => entry.data));
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${botId}/messages`, { text: "hold the queue desktop" })).status).toBe(202);
       await expect.poll(promptsOnBox, { timeout: 5_000 }).toBe(1);
       await reachForComputer();
@@ -3683,7 +3680,7 @@ describe("harness HTTP API", () => {
       for (const [index, title] of ["First waiter", "Second waiter", "Third waiter"].entries()) {
         const task = (await api("POST", `/api/bots/${botId}/tasks`, { title })).body.task;
         waiterThreads.push(task.threadId);
-        rmSync(fakeClaudeDump, { force: true });
+        clearDumps(fakeClaudeDump);
         expect((await api("POST", `/api/bots/${botId}/messages`, { text: `arrival ${index + 1} of the queue`, threadId: task.threadId })).status).toBe(202);
         void reachForComputer();
         await expect.poll(async () => JSON.stringify(await threadMessages(task.threadId)), { timeout: 5_000 })
@@ -3701,7 +3698,7 @@ describe("harness HTTP API", () => {
 
       const fourth = (await api("POST", `/api/bots/${botId}/tasks`, { title: "Fourth waiter" })).body.task;
       waiterThreads.push(fourth.threadId);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${botId}/messages`, { text: "arrival 4 wants an estimate", threadId: fourth.threadId })).status).toBe(202);
       void reachForComputer();
       await expect.poll(async () => JSON.stringify(await threadMessages(fourth.threadId)), { timeout: 5_000 }).toMatch(/3rd in queue/);
@@ -3729,7 +3726,7 @@ describe("harness HTTP API", () => {
       managedBoatCreateId = "bx_cdefghjk";
       managedBoatCreateName = "";
       boatRouteCalls.length = 0;
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
     }
   }, 60_000);
 
@@ -3747,7 +3744,7 @@ describe("harness HTTP API", () => {
     writeFileSync(join(isolatedStatic, "assets", "smoke.css"), "body{}");
     writeFileSync(join(isolatedData, "config.json"), JSON.stringify({
       instances: {
-        claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } },
+        claude: { driver: "deepseekAgent", displayName: "Fixture Claude", config: { cli: FAKE_ACP_CLI }, environment: { FAKE_ACP_MODELS: "fake-model" } },
       },
     }));
     let isolatedStderr = "";
@@ -3762,9 +3759,9 @@ describe("harness HTTP API", () => {
         OMB_WEBHOOK_PORT: String(isolatedPort + 1),
         OMB_STATIC_DIR: isolatedStatic,
         OMB_BOAT_API: `http://127.0.0.1:${boatStubPort}`,
-        FAKE_CLAUDE_MODE: "hang",
-        FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1",
-        FAKE_CLAUDE_PROMPTS: join(isolatedHome, "desktop-prompts.jsonl"),
+        FAKE_ACP_COMPUTER_TOOL: "1",
+        FAKE_ACP_DUMP: join(isolatedHome, "fake-acp-dump.json"),
+        FAKE_ACP_PROMPT_TEXT: "1",
         // seconds, not minutes: the point of this test is the computer cap firing
         OMB_COMPUTER_WAIT_MAX_MS: "2000",
         OMB_COMPUTER_CALL_WAIT_MS: "500",
@@ -3782,7 +3779,7 @@ describe("harness HTTP API", () => {
     };
     const promptsOnParkBox = () => {
       expect(boatRouteCalls.filter((call) => call.method === "POST" && call.path === "/sandboxes/bx_parkdskt/prompt")).toHaveLength(0);
-      return claudePrompts(join(isolatedHome, "desktop-prompts.jsonl")).length;
+      return claudePrompts(join(isolatedHome, "fake-acp-dump.json") + ".prompts.jsonl").length;
     };
     let botId = "";
     let holderThreadId = "";
@@ -3797,7 +3794,7 @@ describe("harness HTTP API", () => {
       expect((await isolatedApi("PUT", "/api/config", { box: { token: "box_route" } })).status).toBe(200);
       const bot = (await isolatedApi("POST", "/api/bots", {
         name: "Park holder", section,
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).body.bot;
       botId = bot.id;
       holderThreadId = bot.threadId;
@@ -3841,7 +3838,7 @@ describe("harness HTTP API", () => {
 
       const roomBot = (await isolatedApi("POST", "/api/bots", {
         name: "Park room speaker", section,
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).body.bot;
       roomBotId = roomBot.id;
       const room = (await isolatedApi("POST", "/api/groups", {
@@ -3866,7 +3863,7 @@ describe("harness HTTP API", () => {
       expect((await isolatedApi("POST", `/api/bots/${botId}/interrupt`, { threadId: sibling.threadId })).status).toBe(200);
       await expect.poll(promptsOnParkBox, { timeout: 10_000 }).toBeGreaterThanOrEqual(5);
       await expect.poll(roomRows, { timeout: 5_000 }).toEqual([[roomBot.id, null, "running", 2, null]]);
-      expect(claudePrompts(join(isolatedHome, "desktop-prompts.jsonl")).at(-1)).toContain("Continue the task that parked waiting for it");
+      expect(claudePrompts(join(isolatedHome, "fake-acp-dump.json") + ".prompts.jsonl").at(-1)).toContain("Continue the task that parked waiting for it");
 
       // Every turn counts once as it starts, and a resume once more: a stale resume would show as one prompt too many.
       expect((await isolatedApi("POST", `/api/bots/${botId}/messages`, { text: "wait past the ceiling a second time", threadId: siblingThreadId })).status).toBe(202);
@@ -3906,7 +3903,7 @@ describe("harness HTTP API", () => {
       const beforeFreed = promptsOnParkBox();
       expect((await isolatedApi("POST", `/api/bots/${botId}/interrupt`, { threadId: siblingThreadId })).status).toBe(200);
       await new Promise((resolve) => setTimeout(resolve, 3_000));
-      expect(promptsOnParkBox(), `nothing stopped resumes once the computer frees: ${claudePrompts(join(isolatedHome, "desktop-prompts.jsonl")).slice(beforeFreed).join("\n").slice(-1_500)}`).toBe(beforeFreed);
+      expect(promptsOnParkBox(), `nothing stopped resumes once the computer frees: ${claudePrompts(join(isolatedHome, "fake-acp-dump.json") + ".prompts.jsonl").slice(beforeFreed).join("\n").slice(-1_500)}`).toBe(beforeFreed);
       expect((await isolatedApi("GET", "/api/bots?messages=0")).body.bots
         .find((entry: any) => entry.id === botId)?.tasks.find((task: any) => task.threadId === stoppedThreadId)?.busy).toBe(false);
 
@@ -3955,30 +3952,29 @@ describe("harness HTTP API", () => {
     writeFileSync(join(isolatedData, "config.json"), JSON.stringify({
       instances: {
         holder: {
-          driver: "claudeAgent",
+          driver: "deepseekAgent",
           displayName: "Fixture holder",
-          environment: { FAKE_CLAUDE_MODE: "hang", FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1", FAKE_CLAUDE_PROMPTS: join(isolatedHome, "desktop-prompts.jsonl") },
-          config: { cli: FAKE_CLAUDE_CLI },
+          environment: { FAKE_ACP_COMPUTER_TOOL: "1", FAKE_ACP_MODELS: "fake-model" },
+          config: { cli: FAKE_ACP_CLI },
         },
         lead: {
-          driver: "claudeAgent",
+          driver: "deepseekAgent",
           displayName: "Fixture lead",
           environment: {
-            FAKE_CLAUDE_MODE: "happy",
-            FAKE_CLAUDE_REPLIES: JSON.stringify(leadReplies),
-            FAKE_CLAUDE_REPLY_STATE: join(isolatedHome, "lead-replies.txt"),
+            FAKE_ACP_REPLIES: JSON.stringify(leadReplies),
+            FAKE_ACP_REPLY_STATE: join(isolatedHome, "lead-replies.txt"),
+            FAKE_ACP_MODELS: "fake-model",
           },
-          config: { cli: FAKE_CLAUDE_CLI },
+          config: { cli: FAKE_ACP_CLI },
         },
         worker: {
-          driver: "claudeAgent",
+          driver: "deepseekAgent",
           displayName: "Fixture worker",
           environment: {
-            FAKE_CLAUDE_PROMPTS: join(isolatedHome, "desktop-prompts.jsonl"),
-            FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1",
-            FAKE_CLAUDE_MODE: "hang",
+            FAKE_ACP_COMPUTER_TOOL: "1",
+            FAKE_ACP_MODELS: "fake-model",
           },
-          config: { cli: FAKE_CLAUDE_CLI },
+          config: { cli: FAKE_ACP_CLI },
         },
       },
     }));
@@ -4010,7 +4006,7 @@ describe("harness HTTP API", () => {
     };
     const promptsOnGoalBox = () => {
       expect(boatRouteCalls.filter((call) => call.method === "POST" && call.path === "/sandboxes/bx_parkedsk/prompt")).toHaveLength(0);
-      return claudePrompts(join(isolatedHome, "desktop-prompts.jsonl")).length;
+      return claudePrompts(join(isolatedHome, "fake-acp-dump.json") + ".prompts.jsonl").length;
     };
     const goalCard = async () => {
       const state = (await isolatedApi("GET", "/api/bots?messages=40")).body;
@@ -4037,13 +4033,13 @@ describe("harness HTTP API", () => {
       expect((await isolatedApi("PUT", "/api/config", { box: { token: "box_route" } })).status).toBe(200);
       const holder = (await isolatedApi("POST", "/api/bots", {
         name: "Goal park holder", section,
-        modelSelection: { instanceId: "holder", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "holder", model: "fake-model" },
       })).body.bot;
       holderBotId = holder.id;
       holderThreadId = holder.threadId;
       const lead = (await isolatedApi("POST", "/api/bots", {
         name: "Goal lead", section,
-        modelSelection: { instanceId: "lead", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "lead", model: "fake-model" },
       })).body.bot;
       leadId = lead.id;
       // Patched before the section gains the team computer, which otherwise locks computer changes for its bots.
@@ -4054,7 +4050,7 @@ describe("harness HTTP API", () => {
       await expect.poll(promptsOnGoalBox, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
       const worker = (await isolatedApi("POST", "/api/bots", {
         name: "Parker", section,
-        modelSelection: { instanceId: "worker", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "worker", model: "fake-model" },
       })).body.bot;
       workerId = worker.id;
       const room = (await isolatedApi("POST", "/api/groups", {
@@ -4118,10 +4114,10 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         computer: "off",
         cloudBackend: "box",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hold the direct turn" })).status).toBe(202);
       await readJsonFileWhenReady(fakeClaudeDump);
       expect((await api("PATCH", `/api/bots/${bot.id}`, { computer: "cloud" })).status).toBe(200);
@@ -4168,7 +4164,7 @@ describe("harness HTTP API", () => {
       if (botId) await api("DELETE", `/api/bots/${botId}`).catch(() => undefined);
       await api("PUT", "/api/config", { box: { token: "" } });
       boatRouteCalls.length = 0;
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
     }
   });
 
@@ -4182,7 +4178,7 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         computer: "off",
         cloudBackend: "box",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       const room = (await api("POST", "/api/groups", {
         name: "Boat lifecycle race",
@@ -4191,7 +4187,7 @@ describe("harness HTTP API", () => {
       roomId = room.id;
       expect((await api("PATCH", `/api/groups/${room.id}/setup`, { action: "skip" })).status).toBe(200);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "hold the room turn" })).status).toBe(202);
       await readJsonFileWhenReady(fakeClaudeDump);
       await expect.poll(async () => {
@@ -4225,7 +4221,7 @@ describe("harness HTTP API", () => {
       if (botId) await api("DELETE", `/api/bots/${botId}`).catch(() => undefined);
       await api("PUT", "/api/config", { box: { token: "" } });
       boatRouteCalls.length = 0;
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
     }
   });
 
@@ -4528,7 +4524,7 @@ describe("harness HTTP API", () => {
       managedBoatRows = [];
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         name: "Target",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
         composio: false,
         browser: false,
       })).status).toBe(200);
@@ -5110,7 +5106,7 @@ describe("harness HTTP API", () => {
 
   it("keeps a channel image in its transcript while sending native pixels to the responder", async () => {
     const created = await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
@@ -5138,7 +5134,7 @@ describe("harness HTTP API", () => {
       const { path: imagePath } = await uploaded.json() as { path: string };
       const text = `Describe this image\n\n<attached-image path="${imagePath}" name="tiny.png" />`;
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text })).status).toBe(202);
       const dump = await readJsonFileWhenReady<{
         prompt: { message: { content: Array<{ type: string; text?: string; source?: { data?: string } }> } };
@@ -5169,7 +5165,7 @@ describe("harness HTTP API", () => {
 
   it("sends an earlier image as native pixels again when an edit rewinds the chat", async () => {
     const created = await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
@@ -5192,21 +5188,21 @@ describe("harness HTTP API", () => {
         return typeof content === "string" ? [] : content.filter((part) => part.type === "image");
       };
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, {
         text: `Describe this screenshot\n\n<attached-image path="${imagePath}" name="tiny.png" />`,
       })).status).toBe(202);
       expect(imageBlocks(await readJsonFileWhenReady<Dump>(fakeClaudeDump, 20_000))).toHaveLength(1);
       await releaseTurn(bot.id);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "what colour is it" })).status).toBe(202);
       await readJsonFileWhenReady(fakeClaudeDump);
       await releaseTurn(bot.id);
       const followUp = (await api("GET", `/api/threads/${bot.threadId}/messages`)).body.messages
         .find((message: { role: string; text?: string }) => message.role === "user" && message.text === "what colour is it");
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages/${followUp.id}/edit`, { text: "what shape is it" })).status)
         .toBe(202);
       const rewound = await readJsonFileWhenReady<Dump>(fakeClaudeDump);
@@ -5573,7 +5569,7 @@ describe("harness HTTP API", () => {
     writeFileSync(join(isolatedData, "config.json"), JSON.stringify({
       instances: {
         codex: { driver: "codex", displayName: "Fixture Codex", config: { cli: join(isolatedHome, "missing-codex") } },
-        claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } },
+        claude: { driver: "deepseekAgent", displayName: "Fixture Claude", config: { cli: FAKE_ACP_CLI }, environment: { FAKE_ACP_MODELS: "fake-model" } },
       },
     }));
     const trustedBots = (["full", "custom"] as const).map((approvalMode, index) => ({
@@ -5613,8 +5609,8 @@ describe("harness HTTP API", () => {
         OMB_PORT: String(isolatedPort),
         OMB_WEBHOOK_PORT: String(isolatedPort + 1),
         OMB_STATIC_DIR: isolatedStatic,
-        FAKE_CLAUDE_MODE: "hang",
-        FAKE_CLAUDE_DUMP: join(isolatedHome, "fake-claude-dump.json"),
+        FAKE_ACP_RELEASE_FILE: join(isolatedHome, "fake-acp-release"),
+        FAKE_ACP_DUMP: join(isolatedHome, "fake-acp-dump.json"),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -6268,12 +6264,12 @@ describe("harness HTTP API", () => {
       const bot = (await api("POST", "/api/bots")).body.bot;
       botId = bot.id;
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       stream = await openSse(`${BASE}/api/events`);
       await stream.until((frame) => frame.kind === "hello");
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "stay active" })).status).toBe(202);
       const dump = await readJsonFileWhenReady<{
         mcpConfig: { mcpServers: { agents: { env: { OMB_COMMS_TOKEN: string } } } };
@@ -6347,7 +6343,7 @@ describe("harness HTTP API", () => {
           message.role === "user" && message.kind === "text" && message.text === "stay active",
       );
       expect(originalUserMessage?.id).toEqual(expect.any(String));
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages/${originalUserMessage.id}/edit`, {
         text: "take another branch",
       })).status).toBe(202);
@@ -6362,7 +6358,7 @@ describe("harness HTTP API", () => {
 
       // The bot now works on a cloud computer with no Box account connected, so the execution cannot start.
       expect((await api("PATCH", `/api/bots/${bot.id}`, { computer: "cloud" })).status).toBe(200);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/secret-cards/${messageId}/dismiss`, {
         threadId: bot.threadId,
       })).status).toBe(200);
@@ -6383,7 +6379,7 @@ describe("harness HTTP API", () => {
       stream?.close();
       if (botId) await api("DELETE", `/api/bots/${botId}`);
       await api("PUT", "/api/config", { box: { token: "" } });
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
     }
   });
 
@@ -6395,15 +6391,15 @@ describe("harness HTTP API", () => {
       botId = bot.id;
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         computer: "browser",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       stream = await openSse(`${BASE}/api/events`);
       await stream.until((frame) => frame.kind === "hello");
       const turn = async (text: string) => {
-        rmSync(fakeClaudeDump, { force: true });
+        clearDumps(fakeClaudeDump);
         expect((await api("POST", `/api/bots/${bot.id}/messages`, { text })).status).toBe(202);
         await readJsonFileWhenReady(fakeClaudeDump);
-        rmSync(fakeClaudeDump, { force: true });
+        clearDumps(fakeClaudeDump);
         return mintTestCapability(BASE, bot.id, bot.threadId);
       };
       let token = await turn("get the monthly report");
@@ -6475,7 +6471,7 @@ describe("harness HTTP API", () => {
       if (botId) await api("POST", `/api/bots/${botId}/interrupt`, {}).catch(() => undefined);
       stream?.close();
       if (botId) await api("DELETE", `/api/bots/${botId}`);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
     }
   }, 60_000);
 
@@ -6486,17 +6482,17 @@ describe("harness HTTP API", () => {
       botId = bot.id;
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         computer: "browser",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       const busy = () => api("GET", "/api/bots?messages=0").then(({ body }) => body.bots
         .find((candidate: { id: string }) => candidate.id === bot.id)?.busy);
       const card = async (id: string) => (await api("GET", `/api/threads/${bot.threadId}/messages`)).body.messages
         .find((message: { id: string }) => message.id === id)?.signIn;
       const turn = async (text: string) => {
-        rmSync(fakeClaudeDump, { force: true });
+        clearDumps(fakeClaudeDump);
         expect((await api("POST", `/api/bots/${bot.id}/messages`, { text })).status).toBe(202);
         await readJsonFileWhenReady(fakeClaudeDump);
-        rmSync(fakeClaudeDump, { force: true });
+        clearDumps(fakeClaudeDump);
         const token = await mintTestCapability(BASE, bot.id, bot.threadId);
         const requested = await fetch(`${BASE}/api/internal/request-sign-in`, {
           method: "POST",
@@ -6533,7 +6529,7 @@ describe("harness HTTP API", () => {
     } finally {
       if (botId) await api("POST", `/api/bots/${botId}/interrupt`, {}).catch(() => undefined);
       if (botId) await api("DELETE", `/api/bots/${botId}`);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
     }
   }, 60_000);
 
@@ -6549,12 +6545,12 @@ describe("harness HTTP API", () => {
       botId = bot.id;
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         computer: "browser",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "fetch the invoices" })).status).toBe(202);
       await readJsonFileWhenReady(fakeClaudeDump);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       const token = await mintTestCapability(BASE, bot.id, bot.threadId);
       const requested = await fetch(`${BASE}/api/internal/request-sign-in`, {
         method: "POST",
@@ -6578,7 +6574,7 @@ describe("harness HTTP API", () => {
       expect((await card()).signIn.done).toBeUndefined();
       expect((await api("GET", "/api/logins")).body.logins).toEqual([]);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect(await save({ threadId: bot.threadId, username: "alice@example.com", password, totp: twoFactorKey }))
         .toMatchObject({ status: 200, body: { done: true, resumed: true, saved: true, site: "example.com" } });
       const resumed = await readJsonFileWhenReady<{ prompt: unknown }>(fakeClaudeDump);
@@ -6607,7 +6603,7 @@ describe("harness HTTP API", () => {
       if (loginId) await api("DELETE", `/api/logins/${loginId}`);
       if (botId) await api("POST", `/api/bots/${botId}/interrupt`, {}).catch(() => undefined);
       if (botId) await api("DELETE", `/api/bots/${botId}`);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
     }
   }, 60_000);
 
@@ -6773,7 +6769,7 @@ describe("harness HTTP API", () => {
     writeFileSync(join(isolatedStatic, "assets", "smoke.css"), "body{}");
     writeFileSync(join(isolatedData, "config.json"), JSON.stringify({
       instances: {
-        claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } },
+        claude: { driver: "deepseekAgent", displayName: "Fixture Claude", config: { cli: FAKE_ACP_CLI }, environment: { FAKE_ACP_MODELS: "fake-model" } },
       },
     }));
 
@@ -6847,8 +6843,8 @@ describe("harness HTTP API", () => {
           OMB_PORT: String(isolatedPort),
           OMB_WEBHOOK_PORT: String(isolatedPort + 1),
           OMB_STATIC_DIR: isolatedStatic,
-          FAKE_CLAUDE_MODE: "hang",
-          FAKE_CLAUDE_DUMP: isolatedDump,
+          FAKE_ACP_RELEASE_FILE: join(isolatedGate, "acp-release"),
+          FAKE_ACP_DUMP: isolatedDump,
           OMB_TEST_INTERNAL_CAPABILITY_KEY: TEST_CAPABILITY_KEY,
         },
         stdio: ["ignore", "pipe", "pipe"],
@@ -6893,7 +6889,7 @@ describe("harness HTTP API", () => {
     try {
       await waitForIsolatedServer(isolatedChild, isolatedPort, () => isolatedStderr);
       const createBot = async () => (await isolatedApi("POST", "/api/bots", {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
         requireAvailableModel: true,
       })).body.bot;
       const direct = await createBot();
@@ -7600,7 +7596,7 @@ describe("harness HTTP API", () => {
   it("applies Full access over HTTP at once, and the bot's next turns run at Full", async () => {
     const created: string[] = [];
     const permissionModeOf = async (botId: string, threadId: string) => {
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${botId}/messages`, { text: "check the level", threadId })).status).toBe(202);
       // The first turn on a fresh engine waits on its CLI probes.
       const { argv } = await readJsonFileWhenReady<{ argv: string[] }>(fakeClaudeDump, 15_000);
@@ -7614,7 +7610,7 @@ describe("harness HTTP API", () => {
       bot.tasks.find((task) => task.threadId === threadId)?.approvalMode;
     try {
       const bot = (await api("POST", "/api/bots", {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).body.bot;
       created.push(bot.id);
       expect((await api("PATCH", `/api/bots/${bot.id}`, { approvalMode: "ask" })).status).toBe(200);
@@ -7650,7 +7646,7 @@ describe("harness HTTP API", () => {
       expect(custom.body.error).toMatch(/does not support/i);
 
       const born = await api("POST", "/api/bots", {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, settings: { approvalMode: "full" },
+        modelSelection: { instanceId: "claude", model: "fake-model" }, settings: { approvalMode: "full" },
       });
       expect(born.status).toBe(201);
       created.push(born.body.bot.id);
@@ -7667,7 +7663,7 @@ describe("harness HTTP API", () => {
 
   it("sets a team-wide level on every thread, New-thread threads included, the same way for every level", async () => {
     const permissionModeOf = async (botId: string, threadId: string) => {
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${botId}/messages`, { text: "check the level", threadId })).status).toBe(202);
       const { argv } = await readJsonFileWhenReady<{ argv: string[] }>(fakeClaudeDump, 15_000);
       expect((await api("POST", `/api/bots/${botId}/interrupt`, { threadId })).status).toBe(200);
@@ -7677,7 +7673,7 @@ describe("harness HTTP API", () => {
       return argv[argv.indexOf("--permission-mode") + 1];
     };
     type WireBot = { approvalMode?: string; tasks: Array<{ threadId: string; approvalMode?: string }> };
-    const bot = (await api("POST", "/api/bots", { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).body.bot;
+    const bot = (await api("POST", "/api/bots", { modelSelection: { instanceId: "claude", model: "fake-model" } })).body.bot;
     const opened: string[] = [];
     const levels = (saved: WireBot) => [bot.threadId, ...opened].map((threadId) =>
       saved.tasks.find((task) => task.threadId === threadId)?.approvalMode ?? saved.approvalMode);
@@ -7781,10 +7777,14 @@ describe("harness HTTP API", () => {
       modelSelection: { instanceId: "claude", model: "fixture-claude-model" },
     })).body.bot;
     try {
-      // Claude's engine implements acceptEdits, so the same PATCH applies.
-      const applied = await api("PATCH", `/api/bots/${claude.id}/tasks/${claude.threadId}`, { approvalMode: "edits" });
+      // No shipped engine keeps an auto-accept-edits level (Claude's acceptEdits was vendor): the
+      // same PATCH is refused too, while the generic levels still apply.
+      const refusedEdits = await api("PATCH", `/api/bots/${claude.id}/tasks/${claude.threadId}`, { approvalMode: "edits" });
+      expect(refusedEdits.status).toBe(400);
+      expect(refusedEdits.body.error).toMatch(/This provider does not support the selected approval level/);
+      const applied = await api("PATCH", `/api/bots/${claude.id}/tasks/${claude.threadId}`, { approvalMode: "auto" });
       expect(applied.status).toBe(200);
-      expect(applied.body.task).toMatchObject({ approvalMode: "edits", autoApprove: false });
+      expect(applied.body.task).toMatchObject({ approvalMode: "auto", autoApprove: true });
     } finally {
       await api("DELETE", `/api/bots/${claude.id}`);
     }
@@ -7886,7 +7886,7 @@ describe("harness HTTP API", () => {
     const ids: string[] = [];
     const greeting = async (threadId: string) => (await api("GET", `/api/threads/${threadId}/messages?limit=50`)).body.messages[0];
     const create = async (name: string) => {
-      const created = await api("POST", "/api/bots", { name, modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true });
+      const created = await api("POST", "/api/bots", { name, modelSelection: { instanceId: "claude", model: "fake-model" }, requireAvailableModel: true });
       expect(created.status).toBe(201);
       ids.push(created.body.bot.id);
       return created.body.bot;
@@ -7894,18 +7894,14 @@ describe("harness HTTP API", () => {
     expect((await api("PUT", "/api/config", { profile: { name: "Milind Soni" }, features: { smartSetupChoices: true } })).status).toBe(200);
     try {
       writeFileSync(setupAnswersFile, `${JSON.stringify(answers)}\n`);
-      rmSync(setupAnswersDump, { force: true });
+      clearDumps(fakeClaudeDump);
       const bot = await create("Bookkeeper");
       expect(bot.messages[0]).toMatchObject({ setupOffer: true, setupChoicesPending: true });
       await expect.poll(async () => (await greeting(bot.threadId)).setupChoicesPending ?? null, { timeout: 10_000 }).toBeNull();
       expect((await greeting(bot.threadId)).setupChoices).toEqual(answers);
-      const seen = await readJsonFileWhenReady<{ argv: string[]; env: Record<string, string | undefined>; prompt: string }>(setupAnswersDump);
-      expect(seen.argv[seen.argv.indexOf("--model") + 1]).toBe("claude-haiku-5-5");
-      expect(JSON.parse(seen.argv[seen.argv.indexOf("--settings") + 1]!)).toEqual({ alwaysThinkingEnabled: false, disableAllHooks: true });
-      expect(seen.argv).not.toContain("--effort");
-      expect(seen.env.MAX_THINKING_TOKENS).toBeUndefined();
-      expect(seen.prompt).toContain("Bot name: Bookkeeper");
-      expect(seen.prompt).not.toContain("Milind");
+      const seen = await readJsonFileWhenReady<{ prompt: unknown }>(fakeClaudeDump + ".prompt.json");
+      expect(JSON.stringify(seen.prompt)).toContain("Bot name: Bookkeeper");
+      expect(JSON.stringify(seen.prompt)).not.toContain("Milind");
       const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
       const usage = await (await fetch(`${BASE}/api/usage.csv?from=${day(-1)}&to=${day(1)}`)).text();
       expect(usage.split("\n").some((line) => line.includes("Bookkeeper") && line.includes(",setup-suggestions-"))).toBe(true);
@@ -7930,12 +7926,12 @@ describe("harness HTTP API", () => {
       await expect.poll(async () => { const line = await greeting(threadId); return line.setupChoicesPending ?? line.setupChoicesUpdating ?? null; }, { timeout: 10_000 }).toBeNull();
       return greeting(threadId);
     };
-    const answer = (choices: string[]) => { writeFileSync(setupAnswersFile, `${JSON.stringify(choices)}\n`); rmSync(setupAnswersDump, { force: true }); };
+    const answer = (choices: string[]) => { writeFileSync(setupAnswersFile, `${JSON.stringify(choices)}\n`); clearDumps(fakeClaudeDump); };
     let id = "";
     expect((await api("PUT", "/api/config", { features: { smartSetupChoices: true } })).status).toBe(200);
     try {
       rmSync(setupAnswersFile, { force: true });
-      const created = await api("POST", "/api/bots", { name: "Pepper", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true });
+      const created = await api("POST", "/api/bots", { name: "Pepper", modelSelection: { instanceId: "claude", model: "fake-model" }, requireAvailableModel: true });
       expect(created.status).toBe(201);
       id = created.body.bot.id;
       const { threadId } = created.body.bot;
@@ -7946,14 +7942,14 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/bots/${id}`, { name: "Recruiter" })).status).toBe(200);
       expect((await greeting(threadId)).setupChoicesUpdating).toEqual(expect.any(Number));
       expect((await settled(threadId)).setupChoices).toEqual(hiring);
-      expect((await readJsonFileWhenReady<{ prompt: string }>(setupAnswersDump)).prompt).toContain("Bot name: Recruiter");
+      expect(JSON.stringify((await readJsonFileWhenReady<{ prompt: unknown }>(fakeClaudeDump + ".prompt.json")).prompt)).toContain("Bot name: Recruiter");
 
       answer(everyday);
       expect((await api("PATCH", `/api/bots/${id}`, { name: "Pesto" })).status).toBe(200);
       const unnamed = await settled(threadId);
-      const rewritten = existsSync(setupAnswersDump) ? await readJsonFileWhenReady<{ prompt: string }>(setupAnswersDump) : null;
+      const rewritten = existsSync(fakeClaudeDump + ".prompt.json") ? await readJsonFileWhenReady<{ prompt: unknown }>(fakeClaudeDump + ".prompt.json") : null;
       expect(unnamed.setupChoices).toEqual(rewritten ? everyday : fixed);
-      expect(rewritten?.prompt ?? "").not.toContain("Bot name:");
+      expect(JSON.stringify(rewritten?.prompt ?? "")).not.toContain("Bot name:");
     } finally {
       rmSync(setupAnswersFile, { force: true });
       if (id) await api("DELETE", `/api/bots/${id}`);
@@ -8368,7 +8364,7 @@ describe("harness HTTP API", () => {
 
   it("pins where a conversation works from the composer, validates the place, and lets it follow the bot again", async () => {
     const created = await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     });
     expect(created.status).toBe(201);
@@ -8390,7 +8386,7 @@ describe("harness HTTP API", () => {
 
   it("dispatches the conversation's pinned computer on the bot's own engine, and previews that same surface", async () => {
     const bot = (await api("POST", "/api/bots", {
-      name: "Surface routing fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      name: "Surface routing fixture", modelSelection: { instanceId: "claude", model: "fake-model" },
     })).body.bot;
     const idle = () => expect.poll(async () =>
       (await api("GET", "/api/bots?messages=0")).body.bots.find((b: { id: string }) => b.id === bot.id)?.busy,
@@ -8401,7 +8397,7 @@ describe("harness HTTP API", () => {
       managedBoatRows = [{ id: "bx_3456789a", name: managedBoatNameForFixture(bot.id), state: "idle" }];
       boatRouteCalls.length = 0;
       boatPromptBodies.length = 0;
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Describe your available computer tools" })).status).toBe(202);
       type Dump = { argv: string[]; mcpConfig: { mcpServers: Record<string, { args?: string[] }> }; systemPrompt: string };
       const local = await readJsonFileWhenReady<Dump>(fakeClaudeDump);
@@ -8413,7 +8409,7 @@ describe("harness HTTP API", () => {
       // The fixture has no ready Local VM: fail there, never click the host or Box.
       await api("PATCH", `/api/bots/${bot.id}`, { computer: "cloud" });
       await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { surface: "vm" });
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Open Chrome on the Local VM" })).status).toBe(202);
       await idle();
       expect(existsSync(fakeClaudeDump)).toBe(false);
@@ -8425,7 +8421,7 @@ describe("harness HTTP API", () => {
 
       await api("PATCH", `/api/bots/${bot.id}`, { computer: "vm" });
       await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { surface: "cloud" });
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Open Chrome on the cloud VM" })).status).toBe(202);
       const pinnedCloud = await readJsonFileWhenReady<Dump>(fakeClaudeDump, 10_000);
       expect(pinnedCloud.argv[pinnedCloud.argv.indexOf("--model") + 1]).toBe("claude-sonnet-5");
@@ -8446,7 +8442,7 @@ describe("harness HTTP API", () => {
       managedBoatRows = [];
       await api("DELETE", `/api/bots/${bot.id}`).catch(() => {});
       await api("PUT", "/api/config", { box: { token: "" } }).catch(() => {});
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       boatPromptBodies.length = 0;
     }
   }, 45_000);
@@ -9013,11 +9009,11 @@ describe("harness HTTP API", () => {
 
   it("keeps an active turn alive when the UI language changes", async () => {
     const bot = (await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     })).body.bot;
     try {
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "stay active" })).status).toBe(202);
       await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
 
@@ -9067,8 +9063,7 @@ describe("harness HTTP API", () => {
     await api("PUT", "/api/config", { rooms: { turnTimeoutMinutes: 5 } });
   });
 
-  it("cards asks when Claude's reviewer never started and remembers an exact configured MCP read", async () => {
-    // Haiku 4.5: the CLI takes `auto` but runs Manual and asks about everything.
+  it("cards asks when the reviewer never started and remembers an exact configured MCP read", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Quill" })).body.bot;
     const conns: Socket[] = [];
     try {
@@ -9079,10 +9074,10 @@ describe("harness HTTP API", () => {
       })).status).toBe(201);
       expect((await api("PATCH", "/api/mcp/servers/linear", { enabled: true })).status).toBe(200);
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
         approvalMode: "auto",
       })).status).toBe(200);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "count my notes" })).status).toBe(202);
       const dump = z.object({
         mcpConfig: z.object({ mcpServers: z.object({ ogb: z.object({ args: z.array(z.string()) }) }) }),
@@ -9123,18 +9118,11 @@ describe("harness HTTP API", () => {
       expect(card.allowKey).toBeUndefined();
       expect(card.allowSession).toBe(true);
       expect((await messages()).some((m) => m.tool?.name.startsWith("auto-approved"))).toBe(false);
-      await expect.poll(async () => (await messages()).filter((m) => m.tool?.name.startsWith("Approve for me: Claude's automatic reviewer is not available")).length).toBe(1);
-      const notices = (await messages()).filter((m) => m.tool?.name.startsWith("Approve for me: Claude's automatic reviewer is not available"));
-      expect(notices).toHaveLength(1);
-      expect(notices[0].tool!.name).toContain("claude-haiku-4-5");
-      expect(notices[0].tool!.name).toContain("asks before each action");
-
       expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: card.requestId, behavior: "allow", always: true })).status).toBe(200);
       await expect(first).resolves.toMatchObject({ behavior: "allow", always: true });
 
       const second = raise("ask-ls", "ls memory");
       await expect.poll(async () => (await messages()).find((m) => m.card?.subtitle === "ls memory")?.card?.title).toBe("Approval needed");
-      expect((await messages()).filter((m) => m.tool?.name.startsWith("Approve for me: Claude's automatic reviewer"))).toHaveLength(1);
       const secondCard = (await messages()).find((m) => m.card?.subtitle === "ls memory")!.card!;
       expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: secondCard.requestId, behavior: "allow" })).status).toBe(200);
       const plain = await second;
@@ -9190,9 +9178,9 @@ describe("harness HTTP API", () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, {
         text: "/create-verification-skill for my notes app",
       })).status).toBe(202);
@@ -9210,9 +9198,9 @@ describe("harness HTTP API", () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, {
         text: "Build me a sales dashboard from orders.csv",
       })).status).toBe(202);
@@ -9233,10 +9221,10 @@ describe("harness HTTP API", () => {
     const bot = (await api("POST", "/api/bots", { name: "Kiwi", title: "Tracker" })).body.bot;
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
         soul: "File bugs. Never file noise.",
       })).status).toBe(200);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hello" })).status).toBe(202);
       const seen = await readJsonFileWhenReady<{ systemPrompt?: string }>(fakeClaudeDump, 15_000);
       const system: string = seen.systemPrompt ?? "";
@@ -9256,7 +9244,7 @@ describe("harness HTTP API", () => {
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         chiefOfStaff: true,
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       const roster = "Current Roster end department (your team):\n- No other visible bots are available yet.";
 
@@ -9266,7 +9254,7 @@ describe("harness HTTP API", () => {
       expect(team).toContain(roster);
       expect(team.split("\n").at(-1)).toMatch(/^- /);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hello" })).status).toBe(202);
       const system = (await readJsonFileWhenReady<{ systemPrompt: string }>(fakeClaudeDump, 15_000)).systemPrompt;
       expect(system).toContain(roster);
@@ -9296,7 +9284,7 @@ describe("harness HTTP API", () => {
     try {
       expect((await api("PATCH", "/api/config", { features: { browser: true } })).status).toBe(200);
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
 
       const previewIds = async () =>
@@ -9316,7 +9304,7 @@ describe("harness HTTP API", () => {
       expect(text).toContain("\"Works on\" setting is Off");
       expect(text).toContain("no computer and no built-in browser");
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "open a browser and check my calendar" })).status).toBe(202);
       const dispatched = (await readJsonFileWhenReady<{ systemPrompt: string }>(fakeClaudeDump, 15_000)).systemPrompt;
       expect(dispatched).toContain("\"Works on\" setting is Off");
@@ -9332,9 +9320,9 @@ describe("harness HTTP API", () => {
     const bot = (await api("POST", "/api/bots", { name: "Blank" })).body.bot;
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hello" })).status).toBe(202);
       let system = (await readJsonFileWhenReady<{ systemPrompt: string }>(fakeClaudeDump, 15_000)).systemPrompt;
       expect(system.startsWith("You are Blank, a personal bot in OpenMausBot.")).toBe(true);
@@ -9351,7 +9339,7 @@ describe("harness HTTP API", () => {
         return state.bots.find((candidate: { id: string }) => candidate.id === bot.id)?.busy;
       }, { timeout: 5_000 }).toBe(false);
       expect((await api("PATCH", `/api/bots/${bot.id}`, { description: "Files bugs." })).status).toBe(200);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hello again" })).status).toBe(202);
       system = (await readJsonFileWhenReady<{ systemPrompt: string }>(fakeClaudeDump, 15_000)).systemPrompt;
       expect(system).not.toContain("at most four questions");
@@ -9365,9 +9353,9 @@ describe("harness HTTP API", () => {
   it("mounts the USB phone server on every turn, whatever its words: they pick only the phone skill's instructions", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Phone words" })).body.bot;
     try {
-      expect((await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "fake-model" } })).status).toBe(200);
       for (const [text, instructed] of [["hello", false], ["open the Uber app on my Android", true], ["thanks", false]] as const) {
-        rmSync(fakeClaudeDump, { force: true });
+        clearDumps(fakeClaudeDump);
         expect((await api("POST", `/api/bots/${bot.id}/messages`, { text })).status).toBe(202);
         const seen = await readJsonFileWhenReady<{ systemPrompt: string; mcpConfig: { mcpServers: Record<string, unknown> } }>(fakeClaudeDump, 15_000);
         expect(seen.mcpConfig.mcpServers.phone, text).toBeDefined();
@@ -9386,10 +9374,10 @@ describe("harness HTTP API", () => {
     const bot = (await api("POST", "/api/bots", { name: "Kiwi", description: "Files bugs." })).body.bot;
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
         soul: "Never file noise.",
       })).status).toBe(200);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "/setup watch Discord too" })).status).toBe(202);
       const seen = await readJsonFileWhenReady<{ systemPrompt?: string; prompt?: { message?: { content?: unknown } } }>(fakeClaudeDump, 15_000);
       const system: string = seen.systemPrompt ?? "";
@@ -9423,14 +9411,14 @@ describe("harness HTTP API", () => {
     };
     const blankBot = async (name: string) => {
       const bot = (await api("POST", "/api/bots", { name })).body.bot;
-      expect((await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "fake-model" } })).status).toBe(200);
       return bot;
     };
     const messages = async (threadId: string) => (await api("GET", `/api/threads/${threadId}/messages?limit=50`)).body.messages as any[];
     const task = async (botId: string, threadId: string) => (await api("GET", "/api/bots?messages=0")).body.bots
       .find((candidate: { id: string }) => candidate.id === botId)?.tasks?.find((one: { threadId: string }) => one.threadId === threadId);
     const turn = async (botId: string, text: string, threadId?: string) => {
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${botId}/messages`, { text, ...(threadId ? { threadId } : {}) })).status).toBe(202);
       const seen = await readJsonFileWhenReady<Seen>(fakeClaudeDump, 15_000);
       await releaseTurn(botId);
@@ -9441,7 +9429,7 @@ describe("harness HTTP API", () => {
       const bot = await blankBot("Press");
       try {
         expect(bot.messages[0]).toMatchObject({ role: "bot", kind: "text", text: "Hi, I'm Press. What would you like me to do?", setupOffer: true });
-        rmSync(fakeClaudeDump, { force: true });
+        clearDumps(fakeClaudeDump);
         const pressed = await api("POST", `/api/bots/${bot.id}/setup-request`, { threadId: bot.threadId });
         expect(pressed.status).toBe(200);
         const rows = await messages(bot.threadId);
@@ -9502,12 +9490,12 @@ describe("harness HTTP API", () => {
         expect((await api("PATCH", "/api/config", { threads: { maxConcurrentPerBot: 1 } })).status).toBe(200);
         expect((await api("POST", `/api/bots/${bot.id}/setup-request`, { threadId: bot.threadId })).status).toBe(200);
         const holder = (await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Hold the slot" })).body.task;
-        rmSync(fakeClaudeDump, { force: true });
+        clearDumps(fakeClaudeDump);
         expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hold the one slot", threadId: holder.threadId })).status).toBe(202);
         await readJsonFileWhenReady<Seen>(fakeClaudeDump, 15_000);
         const queued = await api("POST", `/api/bots/${bot.id}/messages`, { text: "sort my inbox", threadId: bot.threadId, dataContext: { cardId: "c_2" } });
         expect(queued.body).toMatchObject({ queued: true, reason: "capacity" });
-        rmSync(fakeClaudeDump, { force: true });
+        clearDumps(fakeClaudeDump);
         await releaseTurn(bot.id);
         await expect.poll(() => existsSync(fakeClaudeDump) && userText(JSON.parse(readFileSync(fakeClaudeDump, "utf8")) as Seen).includes("sort my inbox"),
           { timeout: 15_000 }).toBe(true);
@@ -9540,7 +9528,7 @@ describe("harness HTTP API", () => {
       const bot = (await api("POST", "/api/bots", { name: "Described", description: "Files bugs." })).body.bot;
       try {
         expect(bot.messages[0].setupOffer).toBeUndefined();
-        expect((await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).status).toBe(200);
+        expect((await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "fake-model" } })).status).toBe(200);
         expect(await api("POST", `/api/bots/${bot.id}/setup-request`, { threadId: bot.threadId })).toEqual({
           status: 409, body: { error: "This bot already has instructions. To change its job, type /setup and what you'd like it to do." },
         });
@@ -9567,14 +9555,14 @@ describe("harness HTTP API", () => {
       const bot = await blankBot("Edited setup");
       try {
         expect((await api("POST", `/api/bots/${bot.id}/setup-request`, { threadId: bot.threadId })).status).toBe(200);
-        rmSync(fakeClaudeDump, { force: true });
+        clearDumps(fakeClaudeDump);
         expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "sort my inbox", threadId: bot.threadId, dataContext: { cardId: "c_1" } })).status).toBe(202);
         const first = await readJsonFileWhenReady<Seen>(fakeClaudeDump, 15_000);
         await releaseTurn(bot.id);
         expect(userText(first)).toContain("Set yourself up for this job: sort my inbox\n\n<data-context>");
         expect(userText(first)).toContain('"cardId":"c_1"');
         const line = (await messages(bot.threadId)).find((row) => row.role === "user");
-        rmSync(fakeClaudeDump, { force: true });
+        clearDumps(fakeClaudeDump);
         expect((await api("POST", `/api/bots/${bot.id}/messages/${line.id}/edit`, { text: "sort my inbox and my calendar", threadId: bot.threadId })).status).toBe(202);
         const edited = await readJsonFileWhenReady<Seen>(fakeClaudeDump, 15_000);
         await releaseTurn(bot.id);
@@ -9592,7 +9580,7 @@ describe("harness HTTP API", () => {
     // This suite's server has the managed connected-apps service (the stub broker).
     type Dump = { systemPrompt: string; mcpConfig: { mcpServers: Record<string, unknown> } };
     const setupTurn = async (botId: string) => {
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${botId}/messages`, { text: "/setup set up my Gmail" })).status).toBe(202);
       return readJsonFileWhenReady<Dump>(fakeClaudeDump, 15_000);
     };
@@ -9601,7 +9589,7 @@ describe("harness HTTP API", () => {
     try {
       for (const bot of [on, off]) {
         expect((await api("PATCH", `/api/bots/${bot.id}`, {
-          modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+          modelSelection: { instanceId: "claude", model: "fake-model" },
         })).status).toBe(200);
       }
       const mounted = await setupTurn(on.id);
@@ -9627,12 +9615,12 @@ describe("harness HTTP API", () => {
     const bot = (await api("POST", "/api/bots", { name: "Kiwi", title: "Tracker" })).body.bot;
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
         soul: "Record text.",
       })).status).toBe(200);
       // An edit made directly to the mirror file, bypassing the app entirely.
       writeFileSync(join(home, ".openmausbot", "bots", bot.id, "SOUL.md"), "File text.");
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hello" })).status).toBe(202);
       const seen = await readJsonFileWhenReady<{ systemPrompt?: string }>(fakeClaudeDump, 15_000);
       const systemPrompt: string = seen.systemPrompt ?? "";
@@ -9648,7 +9636,7 @@ describe("harness HTTP API", () => {
 
   it("mounts the verification skill only for the latest channel request", async () => {
     const bot = (await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     })).body.bot;
     let room: any;
@@ -9659,7 +9647,7 @@ describe("harness HTTP API", () => {
         setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
       })).body.group;
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/groups/${room.id}/messages`, {
         text: "/create-verification-skill for my mobile app",
       })).status).toBe(202);
@@ -9673,7 +9661,7 @@ describe("harness HTTP API", () => {
         return state.bots.find((candidate: { id: string }) => candidate.id === bot.id)?.busy;
       }, { timeout: 5_000 }).toBe(false);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/groups/${room.id}/messages`, {
         text: "now give me a short status update",
       })).status).toBe(202);
@@ -9741,7 +9729,7 @@ describe("harness HTTP API", () => {
 
   it("refuses to delete a bot while it owns an active channel turn", async () => {
     const bot = (await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     })).body.bot;
     const room = (await api("POST", "/api/groups", {
@@ -9750,7 +9738,7 @@ describe("harness HTTP API", () => {
       setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
     })).body.group;
     try {
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "keep working" })).status).toBe(202);
       await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
 
@@ -9894,7 +9882,7 @@ describe("harness HTTP API", () => {
 
   it("refuses to delete a bot while one of its routines is active", async () => {
     const bot = (await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     })).body.bot;
     const routine = (await api("POST", "/api/routines", {
@@ -9907,7 +9895,7 @@ describe("harness HTTP API", () => {
     })).body.routine;
     let runId = "";
     try {
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       const queued = await api("POST", `/api/routines/${routine.id}/run`);
       expect(queued.status).toBe(201);
       runId = queued.body.run.id;
@@ -9931,7 +9919,7 @@ describe("harness HTTP API", () => {
 
   it("stops a local bot's exact channel and routine work through the emergency endpoint", async () => {
     const bot = (await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       requireAvailableModel: true,
     })).body.bot;
     // Dispatch with computer off so every CI host runs the same hanging provider, then mark the bot local just before the action.
@@ -9944,7 +9932,7 @@ describe("harness HTTP API", () => {
     let routineId = "";
     let runId = "";
     try {
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "work in this channel" })).status).toBe(202);
       await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
       expect((await api("PATCH", `/api/bots/${bot.id}`, { computer: "local" })).status).toBe(200);
@@ -9967,7 +9955,7 @@ describe("harness HTTP API", () => {
       });
       expect(routine.status).toBe(201);
       routineId = routine.body.routine.id;
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       const queued = await api("POST", `/api/routines/${routineId}/run`);
       expect(queued.status).toBe(201);
       runId = queued.body.run.id;
@@ -10001,14 +9989,14 @@ describe("harness HTTP API", () => {
         features: { browser: true }, browserProfiles: [{ id: "prep-failure", name: "Preparation failure" }],
       })).status).toBe(200);
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        browserProfile: "prep-failure", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        browserProfile: "prep-failure", modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       room = (await api("POST", "/api/groups", {
         name: "Browser setup failure", memberIds: [bot.id],
         setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
       })).body.group;
       writeFileSync(failureMarker, "fail only this fixture's browser close");
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "Check the website" })).status).toBe(202);
       await expect.poll(() => readFileSync(join(home, "browser-calls.jsonl"), "utf8").includes('"session":"prep-failure"')).toBe(true);
       await expect.poll(async () => {
@@ -10066,7 +10054,7 @@ describe("harness HTTP API", () => {
         features: { browser: true }, browserEngine: { engine: "chrome" },
       })).status).toBe(200);
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        approvalMode: "auto", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        approvalMode: "auto", modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       const workspace = join(home, ".openmausbot", "workspaces", bot.id);
       mkdirSync(workspace, { recursive: true });
@@ -10076,7 +10064,7 @@ describe("harness HTTP API", () => {
         truncateSync(file, size);
         return file;
       });
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Upload the synthetic files." })).status).toBe(202);
       const dump = await readJsonFileWhenReady(fakeClaudeDump) as {
         mcpConfig: { mcpServers: { browser: { env: Record<string, string> } } };
@@ -10130,7 +10118,7 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         browserProfile: "work",
         approvalMode: "auto",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       const preview = await api("GET", `/api/bots/${bot.id}/system-prompt`);
       expect(preview.status).toBe(200);
@@ -10142,7 +10130,7 @@ describe("harness HTTP API", () => {
         expect((await api("PATCH", `/api/groups/${room.id}/setup`, { action: "skip" })).status).toBe(200);
       }
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       const messagesPath = room ? `/api/groups/${room.id}/messages` : `/api/bots/${bot.id}/messages`;
       expect((await api("POST", messagesPath, { text: "Use my authorized test account to check the website." })).status).toBe(202);
       const dump = z.object({
@@ -10189,7 +10177,7 @@ describe("harness HTTP API", () => {
     const bots: string[] = [];
     const rooms: string[] = [];
     const send = async (path: string) => {
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", path, { text: "Check the website." })).status).toBe(202);
       const dump = await readJsonFileWhenReady(fakeClaudeDump) as { mcpConfig: { mcpServers: { browser?: { alwaysLoad?: boolean } } } };
       expect(dump.mcpConfig.mcpServers.browser).toBeDefined();
@@ -10200,7 +10188,7 @@ describe("harness HTTP API", () => {
       bots.push(bot.id);
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         approvalMode: "auto",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
         ...(computer ? { computer } : {}),
       })).status).toBe(200);
       let path = `/api/bots/${bot.id}/messages`, stop = `/api/bots/${bot.id}/interrupt`;
@@ -10248,13 +10236,13 @@ describe("harness HTTP API", () => {
       (await api("GET", `/api/bots/${id}/system-prompt`)).body.sections
         .find((section: { id: string }) => section.id === "computer");
     const turnPrompt = async (path: string) => {
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", path, { text: "describe your computer tools" })).status).toBe(202);
       return (await readJsonFileWhenReady<{ systemPrompt: string }>(fakeClaudeDump, 15_000)).systemPrompt;
     };
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       if (target === "room") {
         room = (await api("POST", "/api/groups", { name: "Computer paragraph", memberIds: [bot.id] })).body.group;
@@ -10285,7 +10273,7 @@ describe("harness HTTP API", () => {
         boatBot = (await api("POST", "/api/bots", { name: "Beacon" })).body.bot;
         expect((await api("PATCH", `/api/bots/${boatBot.id}`, {
           computer: "cloud", cloudBackend: "box",
-          modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+          modelSelection: { instanceId: "claude", model: "fake-model" },
         })).status).toBe(200);
         managedBoatRows = [{ id: "bx_8765432a", name: managedBoatNameForFixture(boatBot.id), state: "idle" }];
         boatPromptBodies.length = 0;
@@ -10312,7 +10300,7 @@ describe("harness HTTP API", () => {
       await api("PUT", "/api/config", { box: { token: "" } }).catch(() => undefined);
       if (room) await api("DELETE", `/api/groups/${room.id}`).catch(() => undefined);
       await api("DELETE", `/api/bots/${bot.id}`).catch(() => undefined);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
     }
   }, 60_000);
   it("reconciles a committed crash-stale bot reference before ACK and profile-id reuse", async () => {
@@ -10326,7 +10314,7 @@ describe("harness HTTP API", () => {
     writeFileSync(join(isolatedStatic, "assets", "smoke.css"), "body{}");
     writeFileSync(join(isolatedData, "config.json"), JSON.stringify({
       instances: {
-        claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } },
+        claude: { driver: "deepseekAgent", displayName: "Fixture Claude", config: { cli: FAKE_ACP_CLI }, environment: { FAKE_ACP_MODELS: "fake-model" } },
       },
       browserProfiles: [],
     }));
@@ -10339,7 +10327,7 @@ describe("harness HTTP API", () => {
       notifications: true,
       color: "blue",
       unread: false,
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      modelSelection: { instanceId: "claude", model: "fake-model" },
       resumeCursors: {},
       createdAt: 1,
       browserProfile: "client",
@@ -10386,8 +10374,8 @@ describe("harness HTTP API", () => {
           OMB_STATIC_DIR: isolatedStatic,
           // macOS caps socket paths at 103 bytes, so a real agent-browser cannot name its socket under this HOME.
           OMB_AGENT_BROWSER_PATH: join(isolatedHome, "missing-agent-browser"),
-          FAKE_CLAUDE_MODE: "hang",
-          FAKE_CLAUDE_DUMP: join(isolatedHome, "fake-claude-dump.json"),
+          FAKE_ACP_RELEASE_FILE: join(isolatedHome, "fake-acp-release"),
+          FAKE_ACP_DUMP: join(isolatedHome, "fake-acp-dump.json"),
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -10455,7 +10443,7 @@ describe("harness HTTP API", () => {
       })).status).toBe(200);
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         browserProfile: "active",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "keep working" })).status).toBe(202);
       await expect.poll(async () => {
@@ -10491,7 +10479,7 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         browserProfile: "late-claim",
         computer: "off",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
 
       // The Boat stub holds this credential check for 150 ms: the profile becomes active while validation runs.
@@ -10845,11 +10833,11 @@ describe("harness HTTP API", () => {
     expect(ready.status).toBe(200);
     try {
       const selected = await api("PATCH", `/api/bots/${botId}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       });
       expect(selected.status).toBe(200);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       const sent = await api("POST", `/api/groups/${room.id}/messages`, { text: "stay active" });
       expect(sent.status).toBe(202);
       await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
@@ -10894,7 +10882,7 @@ describe("harness HTTP API", () => {
     try {
       for (const bot of [first, second]) {
         const selected = await api("PATCH", `/api/bots/${bot.id}`, {
-          modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+          modelSelection: { instanceId: "claude", model: "fake-model" },
         });
         expect(selected.status).toBe(200);
       }
@@ -10953,12 +10941,12 @@ describe("harness HTTP API", () => {
     try {
       for (const bot of [first, second]) {
         const selected = await api("PATCH", `/api/bots/${bot.id}`, {
-          modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+          modelSelection: { instanceId: "claude", model: "fake-model" },
         });
         expect(selected.status).toBe(200);
       }
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "start the lead" })).status).toBe(202);
       const firstDump = await readJsonFileWhenReady<{
         pid: number;
@@ -11075,11 +11063,11 @@ describe("harness HTTP API", () => {
     try {
       const selected = await api("PATCH", `/api/bots/${bot.id}`, {
         approvalMode: "ask",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       });
       expect(selected.status).toBe(200);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "prepare a routine" })).status).toBe(202);
       const dump = await readJsonFileWhenReady<{
         mcpConfig: { mcpServers: { agents: { env: { OMB_COMMS_TOKEN: string } } } };
@@ -11612,7 +11600,7 @@ describe("harness HTTP API", () => {
     const soulFileOf = (botId: string) => join(home, ".openmausbot", "bots", botId, "SOUL.md");
     const bot = (await api("POST", "/api/bots", { name: "Scout" })).body.bot;
     try {
-      await api("PATCH", `/api/bots/${bot.id}`, { approvalMode: "ask", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } });
+      await api("PATCH", `/api/bots/${bot.id}`, { approvalMode: "ask", modelSelection: { instanceId: "claude", model: "fake-model" } });
 
       const token = await mintTestCapability(BASE, bot.id, bot.threadId);
       const internalHeaders = {
@@ -11688,7 +11676,7 @@ describe("harness HTTP API", () => {
     const a = (await api("POST", "/api/bots", { name: "Ari" })).body.bot;
     const b = (await api("POST", "/api/bots", { name: "Bo" })).body.bot;
     try {
-      await api("PATCH", `/api/bots/${a.id}`, { approvalMode: "ask", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } });
+      await api("PATCH", `/api/bots/${a.id}`, { approvalMode: "ask", modelSelection: { instanceId: "claude", model: "fake-model" } });
 
       const token = await mintTestCapability(BASE, a.id, a.threadId);
       const internalHeaders = {
@@ -11775,7 +11763,7 @@ describe("harness HTTP API", () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       const token = await mintTestCapability(BASE, bot.id, bot.threadId, { skillAuthoring: true });
       const post = (body: Record<string, unknown>) => fetch(`${BASE}/api/internal/skills/stage`, {
@@ -11829,10 +11817,10 @@ describe("harness HTTP API", () => {
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         approvalMode: "ask",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "prepare a skill" })).status).toBe(202);
       const dump = await readJsonFileWhenReady<{
         mcpConfig: { mcpServers: { agents: { env: { OMB_COMMS_TOKEN: string } } } };
@@ -12497,7 +12485,7 @@ describe("harness HTTP API", () => {
     let pending: ReturnType<typeof api> | undefined;
     try {
       expect((await api("PUT", "/api/config", { composio: { apiKey: "ak_good" } })).status).toBe(200);
-      const created = await api("POST", "/api/bots", { name: "Memory policy race", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } });
+      const created = await api("POST", "/api/bots", { name: "Memory policy race", modelSelection: { instanceId: "claude", model: "fake-model" } });
       expect(created.status).toBe(201);
       botId = created.body.bot.id;
       expect((await api("PATCH", `/api/bots/${botId}`, { computer: "off", composio: false, memoryEnabled: !enabled })).status).toBe(200);
@@ -12513,7 +12501,7 @@ describe("harness HTTP API", () => {
         gate.entered,
         pending.then(({ status }) => { throw new Error(`memory patch returned ${status} before connector validation was held`); }),
       ]);
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       const route = kind === "room" ? `/api/groups/${roomId}/messages` : `/api/bots/${botId}/messages`;
       expect((await api("POST", route, { text: "hold the memory policy turn" })).status).toBe(202);
       await readJsonFileWhenReady(fakeClaudeDump);
@@ -12539,7 +12527,7 @@ describe("harness HTTP API", () => {
       if (roomId) await api("DELETE", `/api/groups/${roomId}`).catch(() => undefined);
       if (botId) await api("DELETE", `/api/bots/${botId}`).catch(() => undefined);
       await api("PUT", "/api/config", { composio: { apiKey: "" } });
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
     }
   });
 
@@ -13009,7 +12997,7 @@ describe("bot memory API", () => {
     const room = (await api("POST", "/api/groups", { name: "Ops", memberIds: [bot.id] })).body.group;
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       const privateThreadId = bot.threadId as string;
       const roomThreadId = room.threadId as string;
@@ -13102,12 +13090,12 @@ describe("bot memory API", () => {
     try {
       for (const b of [bot, other]) {
         expect((await api("PATCH", `/api/bots/${b.id}`, {
-          modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+          modelSelection: { instanceId: "claude", model: "fake-model" },
         })).status).toBe(200);
       }
       const firstThreadId = bot.threadId;
 
-      rmSync(fakeClaudeDump, { force: true });
+      clearDumps(fakeClaudeDump);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, {
         text: "The site audit found three broken links on the pricing page",
       })).status).toBe(202);
@@ -13258,7 +13246,7 @@ describe("bot memory API", () => {
     try {
       for (const b of [bot, other]) {
         expect((await api("PATCH", `/api/bots/${b.id}`, {
-          modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+          modelSelection: { instanceId: "claude", model: "fake-model" },
         })).status).toBe(200);
       }
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Please reconcile the September invoices" })).status).toBe(202);
@@ -13609,7 +13597,7 @@ describe("bot memory API", () => {
       expect(after.body.sections[1].bytes).toBe(Buffer.byteLength(after.body.sections[1].text, "utf8"));
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         computer: "vm",
-        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        modelSelection: { instanceId: "claude", model: "fake-model" },
       })).status).toBe(200);
       const withComputer = await api("GET", `/api/bots/${bot.id}/system-prompt`);
       expect(withComputer.body.sections.find((section: { id: string }) => section.id === "plan").text).toContain("Local VM is an isolated desktop");
@@ -14190,11 +14178,11 @@ describe("instance CLI override API", () => {
   });
 
   it("reports a missing binary as a failed probe with install info", async () => {
-    const res = await api("POST", "/api/cli-test", { cli: "/no/such/binary-anywhere", driver: "claudeAgent" });
+    const res = await api("POST", "/api/cli-test", { cli: "/no/such/binary-anywhere", driver: "deepseekAgent" });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(false);
     expect(res.body.message).toContain("isn't installed");
-    expect(res.body.install?.docsUrl).toBe("https://claude.com/claude-code");
+    expect(res.body.install?.docsUrl).toBe("https://github.com/deepseek-ai/deepseek-harness");
   });
 
   it("probes the complete wrapper with fixed arguments and no inherited credentials", async () => {
@@ -14213,18 +14201,15 @@ describe("instance CLI override API", () => {
     const script = join(home, "cli-noisy-probe.mjs");
     writeFileSync(script, `process.stdout.write("x".repeat(70 * 1024));\n`);
     const cli = `${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`;
-    const res = await api("POST", "/api/cli-test", { cli, driver: "claudeAgent" });
+    const res = await api("POST", "/api/cli-test", { cli, driver: "deepseekAgent" });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(false);
     expect(res.body.message).toContain("more than 64 KiB");
     expect(res.body.install).toBeUndefined();
   });
 
-  it("updates only the configured Claude instance and verifies its version", async () => {
-    const res = await api("POST", "/api/instances/claude/claude-update", {});
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true, version: "2.1.232 (Claude Code)" });
-
+  it("refuses the Claude updater on non-Claude, unknown, and missing instances", async () => {
+    expect((await api("POST", "/api/instances/claude/claude-update", {})).status).toBe(400);
     expect((await api("POST", "/api/instances/ghost/claude-update", {})).status).toBe(400);
     expect((await api("POST", "/api/instances/missing/claude-update", {})).status).toBe(404);
   });

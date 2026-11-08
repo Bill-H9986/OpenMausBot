@@ -37,8 +37,8 @@ it("blocks direct and group turns when an offline engine returns without support
     const configPath = join(dataDir, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     config.instances[selection.instanceId] = {
-      driver: "claudeAgent", displayName: "Returned fixture engine",
-      config: { cli: fileURLToPath(new URL("./testing/fake-claude-cli.ts", import.meta.url)) },
+      driver: "openai-compat", displayName: "Returned fixture engine",
+      config: { url: "http://127.0.0.1:9/v1", key: "fixture-only", model: selection.model },
     };
     writeFileSync(configPath, JSON.stringify(config));
     const env: NodeJS.ProcessEnv = {
@@ -48,7 +48,7 @@ it("blocks direct and group turns when an offline engine returns without support
       XDG_DATA_HOME: join(dataDir, ".local", "share"), HERMES_HOME: join(dataDir, ".hermes"),
       TEMP: join(dataDir, "tmp"), TMP: join(dataDir, "tmp"), TMPDIR: join(dataDir, "tmp"),
       OMB_PORT: new URL(url).port, OMB_WEBHOOK_PORT: String(Number(new URL(url).port) + 1),
-      PATH: dirname(process.execPath), FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_DUMP: fixture.fixtureDumpPath,
+      PATH: dirname(process.execPath), FAKE_ACP_MODE: "happy", FAKE_ACP_DUMP: fixture.fixtureDumpPath,
     };
     for (const key of ["SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TZ"]) {
       if (process.env[key]) env[key] = process.env[key];
@@ -66,7 +66,7 @@ it("blocks direct and group turns when an offline engine returns without support
     expect(returning.capabilities.modelVariants).toBe(false);
     const current = (await api("GET", "/api/bots")).body.bots.find((entry: any) => entry.id === bot.id);
     expect(current.modelSelection).toEqual(selection);
-    expect(existsSync(fixture.fixtureDumpPath)).toBe(false);
+    expect(existsSync(fixture.fixtureDumpPath + ".prompts.jsonl")).toBe(false);
     const direct = await api("POST", `/api/bots/${bot.id}/messages`, { text: "Direct guard fixture", threadId: current.threadId });
     expect(direct.status).toBe(409);
     expect(direct.body.error).toContain("saved model variant cannot be applied");
@@ -74,13 +74,13 @@ it("blocks direct and group turns when an offline engine returns without support
     expect(sent.status).toBe(202);
     const messages = async () => {
       const rows = (await api("GET", `/api/threads/${group.threadId}/messages?limit=20`)).body.messages;
-      evidence.splice(1, 1, { direct, groupSend: sent.status, groupMessages: rows, providerPromptStarted: existsSync(fixture.fixtureDumpPath) });
+      evidence.splice(1, 1, { direct, groupSend: sent.status, groupMessages: rows, providerPromptStarted: existsSync(fixture.fixtureDumpPath + ".prompts.jsonl") });
       return rows;
     };
     await expect.poll(async () => (await messages()).some((message: any) =>
       message.kind === "activity" && message.tool?.ok === false && message.tool.name.includes("saved model variant cannot be applied")),
     { timeout: 10_000 }).toBe(true);
-    expect(existsSync(fixture.fixtureDumpPath), "Neither rejected turn may reach the fake provider prompt").toBe(false);
+    expect(existsSync(fixture.fixtureDumpPath + ".prompts.jsonl"), "Neither rejected turn may reach the fake provider prompt").toBe(false);
     evidence.push({ selection, returnedCapabilities: returning.capabilities, direct, groupSend: sent.status, groupMessages: await messages(), providerPromptStarted: false });
   } finally {
     const evidencePath = `${logPath}.model-variant-return.json`;

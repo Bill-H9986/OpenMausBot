@@ -45,17 +45,20 @@ describe("/setup connects an app through a Connect card, against the real server
     (bot: any) => bot && !bot.busy, "idle bot");
   const setupTurn = async (bot: { id: string; threadId: string }) => {
     rmSync(dump, { force: true });
+    rmSync(`${dump}.prompt.json`, { force: true });
     await api("POST", `/api/bots/${bot.id}/messages`, { text: "/setup set up my Gmail", threadId: bot.threadId });
-    await until(() => existsSync(dump), Boolean, "engine launch");
+    await until(() => existsSync(`${dump}.prompt.json`), Boolean, "engine prompt");
+    const prompt = JSON.parse(readFileSync(`${dump}.prompt.json`, "utf8")) as Array<{ type?: string; text?: string }>;
     await idle(bot.id);
-    const seen = JSON.parse(readFileSync(dump, "utf8")) as { systemPrompt: string; mcpConfig: { mcpServers: Record<string, unknown> } };
-    return { seen, messages: await messages(bot.threadId) };
+    const seen = JSON.parse(readFileSync(dump, "utf8")) as { mcpConfig: { mcpServers: Record<string, unknown> } };
+    return { seen, promptText: prompt.map((block) => block?.text ?? "").join(""), messages: await messages(bot.threadId) };
   };
 
   beforeAll(async () => {
     home = mkdtempSync(join(tmpdir(), "omb-setup-connect-"));
     data = join(home, "data");
-    dump = join(home, "fake-claude-dump.json");
+    dump = join(home, "fake-acp-dump.json");
+    writeFileSync(join(home, "engine-reply.txt"), "Set up Gmail from the card.");
     mkdirSync(data);
     // The managed connection service is present but knows no accounts, so Gmail is not connected.
     broker = createServer((req, res) => {
@@ -66,10 +69,15 @@ describe("/setup connects an app through a Connect card, against the real server
     await new Promise<void>(resolve => broker.listen(0, "127.0.0.1", resolve));
     brokerUrl = `http://127.0.0.1:${(broker.address() as { port: number }).port}/broker`;
     writeFileSync(join(data, "config.json"), JSON.stringify({
+      // A setup card's answers would be one more engine call at every new bot, taking the prompt a test scripts for its turn.
+      features: { smartSetupChoices: false },
       instances: { claude: {
-        driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
+        driver: "deepseekAgent", config: { cli: join(ROOT, "server/testing/fake-acp-cli.ts") },
         // Every turn with the connected-apps tools starts a Gmail connection through them, as a model told to would.
-        environment: { FAKE_CLAUDE_CONNECT_APPS: "gmail", FAKE_CLAUDE_DUMP: dump },
+        environment: {
+          FAKE_ACP_MODELS: "fake-model", FAKE_ACP_DUMP: dump, FAKE_ACP_DUMP_PROMPT: "1",
+          FAKE_ACP_CONNECT_APPS: "gmail", FAKE_ACP_REPLY_FILE: join(home, "engine-reply.txt"),
+        },
       } },
     }));
     const port = await freePortBlock([0, 1]);
@@ -100,11 +108,11 @@ describe("/setup connects an app through a Connect card, against the real server
 
   it("shows a Connect card for Gmail in the chat when the bot's connected apps are on", async () => {
     const { bot } = await api("POST", "/api/bots", { name: "Inbox" });
-    const { seen, messages: chat } = await setupTurn(bot);
+    const { seen, promptText, messages: chat } = await setupTurn(bot);
     expect(seen.mcpConfig.mcpServers.composio).toBeDefined();
-    expect(seen.systemPrompt).toContain("make COMPOSIO_MANAGE_CONNECTIONS for its toolkit (for example gmail) your last tool call");
-    expect(seen.systemPrompt).not.toContain("point them to the Access section");
-    const call = chat.find(message => message.tool?.name === "mcp__composio__COMPOSIO_MANAGE_CONNECTIONS");
+    expect(promptText).toContain("make COMPOSIO_MANAGE_CONNECTIONS for its toolkit (for example gmail) your last tool call");
+    expect(promptText).not.toContain("point them to the Access section");
+    const call = chat.find(message => message.tool?.name?.includes("COMPOSIO_MANAGE_CONNECTIONS"));
     expect(call?.tool).toMatchObject({ ok: true, output: expect.stringContaining("showed the user a secure connection card for gmail") });
     const card = chat.find(message => message.kind === "connector");
     expect(card, JSON.stringify(chat.map(message => [message.kind, message.text]))).toBeDefined();
@@ -115,10 +123,10 @@ describe("/setup connects an app through a Connect card, against the real server
   it("names the switch, and mounts nothing to call, when the bot's connected apps are off", async () => {
     const { bot } = await api("POST", "/api/bots", { name: "Quiet inbox" });
     await api("PATCH", `/api/bots/${bot.id}`, { composio: false });
-    const { seen, messages: chat } = await setupTurn(bot);
+    const { seen, promptText, messages: chat } = await setupTurn(bot);
     expect(seen.mcpConfig.mcpServers.composio).toBeUndefined();
-    expect(seen.systemPrompt).toContain("ask the user to turn on Connected apps in your settings under Access");
-    expect(seen.systemPrompt).not.toContain("COMPOSIO_MANAGE_CONNECTIONS");
+    expect(promptText).toContain("ask the user to turn on Connected apps in your settings under Access");
+    expect(promptText).not.toContain("COMPOSIO_MANAGE_CONNECTIONS");
     expect(chat.some(message => message.kind === "connector")).toBe(false);
   }, 90_000);
 });

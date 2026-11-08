@@ -43,9 +43,9 @@ afterEach(() => {
   setLocale("en");
 });
 
-describe("German approval cards", () => {
-  it("renders a pending command approval in German", () => {
-    setLocale("de");
+describe("approval cards in the app's language", () => {
+  it("renders a pending command approval", () => {
+    setLocale("zh");
     const { message } = commandApproval();
 
     const markup = renderToStaticMarkup(createElement(ApprovalCard, {
@@ -53,22 +53,22 @@ describe("German approval cards", () => {
       message,
     }));
 
-    expect(markup).toContain("Mochi möchte einen Befehl ausführen");
+    expect(markup).toContain("Mochi 想执行命令");
     expect(markup).toContain('class="sr-only"');
-    expect(markup).toContain("Wartet unten auf deine Antwort");
+    expect(markup).toContain("正在等待你在下方回答");
   });
 
-  it("renders a denied command approval in German", () => {
-    setLocale("de");
+  it("renders a denied command approval", () => {
+    setLocale("zh");
     const { message } = commandApproval("deny");
 
     const markup = renderToStaticMarkup(createElement(ApprovalCard, { message }));
 
-    expect(markup).toContain("Abgelehnt");
+    expect(markup).toContain("已拒绝");
   });
 
-  it("renders the pending approval strip in German", () => {
-    setLocale("de");
+  it("renders the pending approval strip", () => {
+    setLocale("zh");
     const { pending } = commandApproval();
 
     const markup = renderToStaticMarkup(createElement(PendingApprovalPanel, {
@@ -77,24 +77,24 @@ describe("German approval cards", () => {
       index: 1,
     }));
 
-    expect(markup).toContain('aria-label="Ausstehende Freigabe"');
-    expect(markup).toContain("Ausstehende Freigabe");
-    expect(markup).toContain("2 von 3");
-    expect(markup).toContain("Befehlsfreigabe angefordert");
-    expect(markup).toContain('aria-label="Details zur Freigabe prüfen"');
+    expect(markup).toContain('aria-label="待批准"');
+    expect(markup).toContain("待批准");
+    expect(markup).toContain("第 2 / 3 条");
+    expect(markup).toContain("请求批准命令");
+    expect(markup).toContain('aria-label="待查看的批准详情"');
   });
 
-  it("speaks a command approval in German", () => {
-    setLocale("de");
+  it("speaks a command approval", () => {
+    setLocale("zh");
     const { pending } = commandApproval();
 
     expect(spokenApprovalPrompt(pending, "Mochi")).toBe(
-      "Mochi möchte einen Befehl ausführen. pnpm test. Soll ich das erlauben?",
+      "Mochi 想执行命令。pnpm test。我要允许吗？",
     );
   });
 
-  it("renders command approval actions in German", () => {
-    setLocale("de");
+  it("renders command approval actions", () => {
+    setLocale("zh");
     const { pending } = commandApproval();
 
     const markup = renderToStaticMarkup(createElement(
@@ -108,18 +108,22 @@ describe("German approval cards", () => {
       }),
     ));
 
-    expect(markup).toContain("Ausführung abbrechen");
-    expect(markup).toContain("Ablehnen");
-    expect(markup).toContain("Immer erlauben");
-    expect(markup).toContain("Einmal erlauben");
-    expect(markup).toContain("Bei Mochi nicht mehr nach Bash:pnpm test fragen");
+    expect(markup).toContain("取消本轮");
+    expect(markup).toContain("拒绝");
+    expect(markup).toContain("始终允许");
+    expect(markup).toContain("允许一次");
+    expect(markup).toContain("不再就 Bash:pnpm test 询问 Mochi");
+  });
+
+  it("speaks a skill approval", () => {
+    setLocale("zh");
+
+    expect(spokenApprovalPrompt(skillUpdateApproval(), "Mochi")).toBe(
+      'Mochi 询问：Update the "lancar-despesa" skill? 请在屏幕上查看该技能。我要更新它吗？',
+    );
   });
 });
 
-/**
- * pt-BR needs another shape for skill approvals: "Should I {action} it?" takes an enclitic pronoun, so the action
- * strings carry it ("atualizá-la").
- */
 function skillUpdateApproval(): Pending {
   const message: Message = {
     id: "skill-update-card",
@@ -127,9 +131,9 @@ function skillUpdateApproval(): Pending {
     kind: "options",
     at: 1,
     card: {
-      title: "Atualizar a habilidade \"lancar-despesa\"?",
-      subtitle: "Lança uma despesa no portal da empresa.",
-      options: ["Atualizar", "Negar"],
+      title: 'Update the "lancar-despesa" skill?',
+      subtitle: "Logs an expense in the company portal.",
+      options: ["Update", "Deny"],
       requestId: "skill-update-request",
       tool: "update_skill",
       skillRequest: {
@@ -140,7 +144,7 @@ function skillUpdateApproval(): Pending {
         stagedId: "staged-update",
         action: "update",
         name: "lancar-despesa",
-        gist: "Lança uma despesa no portal da empresa.",
+        gist: "Logs an expense in the company portal.",
         warnings: [],
         createdAt: 1,
       },
@@ -153,85 +157,3 @@ function skillUpdateApproval(): Pending {
     detail: message.card!.subtitle,
   };
 }
-
-describe("Brazilian Portuguese approval cards", () => {
-  it("renders a pending command approval in Brazilian Portuguese", () => {
-    setLocale("pt-BR");
-    const { message } = commandApproval();
-
-    const markup = renderToStaticMarkup(createElement(ApprovalCard, {
-      bot: { name: "Mochi" } as Bot,
-      message,
-    }));
-
-    expect(markup).toContain("Mochi quer executar um comando");
-    expect(markup).toContain('class="sr-only"');
-    expect(markup).toContain("Aguardando sua resposta abaixo");
-  });
-
-  it("renders a denied command approval in Brazilian Portuguese", () => {
-    setLocale("pt-BR");
-    const { message } = commandApproval("deny");
-
-    const markup = renderToStaticMarkup(createElement(ApprovalCard, { message }));
-
-    expect(markup).toContain("Negado");
-  });
-
-  it("renders the pending approval strip in Brazilian Portuguese", () => {
-    setLocale("pt-BR");
-    const { pending } = commandApproval();
-
-    const markup = renderToStaticMarkup(createElement(PendingApprovalPanel, {
-      pending,
-      count: 3,
-      index: 1,
-    }));
-
-    expect(markup).toContain('aria-label="Aprovação pendente"');
-    expect(markup).toContain("Aprovação pendente");
-    expect(markup).toContain("2 de 3");
-    expect(markup).toContain("Aprovação de comando solicitada");
-    expect(markup).toContain('aria-label="Detalhes da aprovação para revisar"');
-  });
-
-  it("speaks a command approval in Brazilian Portuguese", () => {
-    setLocale("pt-BR");
-    const { pending } = commandApproval();
-
-    expect(spokenApprovalPrompt(pending, "Mochi")).toBe(
-      "Mochi quer executar um comando. pnpm test. Devo permitir?",
-    );
-  });
-
-  it("speaks a skill approval with the pronoun attached to the verb", () => {
-    setLocale("pt-BR");
-
-    expect(spokenApprovalPrompt(skillUpdateApproval(), "Mochi")).toBe(
-      "Mochi pergunta: Atualizar a habilidade \"lancar-despesa\"? "
-        + "Confira a habilidade na tela. Devo atualizá-la?",
-    );
-  });
-
-  it("renders command approval actions in Brazilian Portuguese", () => {
-    setLocale("pt-BR");
-    const { pending } = commandApproval();
-
-    const markup = renderToStaticMarkup(createElement(
-      StoreProvider,
-      null,
-      createElement(PendingApprovalActions, {
-        pending,
-        threadId: "thread-1",
-        bot: { id: "bot-1", name: "Mochi" } as Bot,
-        onCancelTurn: () => undefined,
-      }),
-    ));
-
-    expect(markup).toContain("Cancelar execução");
-    expect(markup).toContain("Negar");
-    expect(markup).toContain("Sempre permitir");
-    expect(markup).toContain("Permitir uma vez");
-    expect(markup).toContain("Não perguntar mais a Mochi sobre Bash:pnpm test");
-  });
-});
