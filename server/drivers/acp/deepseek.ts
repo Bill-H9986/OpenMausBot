@@ -240,7 +240,15 @@ export function dshLaunch(
     return { command: process.execPath, args: [entry, ...args], env: { ...launchEnv, ELECTRON_RUN_AS_NODE: "1" } };
   }
   const resolved = resolveCli(cli, args, launchEnv);
-  return { command: resolved.command, args: resolved.args, env: launchEnv };
+  // The CLI is a launcher when its shim sets state the exec line depends on: dsh's .cmd runs its
+  // Electron host as a CLI via `set "ELECTRON_RUN_AS_NODE=1"`, carried back as resolved.env. The
+  // batch assigns it ahead of the exec line, so the preamble wins for its own names; launchEnv
+  // (the operator's configuration) supplies everything else. Without it the host boots as its GUI
+  // and never answers its ACP stdio.
+  const launch: { command: string; args: string[]; env?: Record<string, string | undefined> } =
+    { command: resolved.command, args: resolved.args };
+  if (resolved.env) launch.env = { ...resolved.env, ...launchEnv };
+  return launch;
 }
 
 /** Ask the installed dsh what it offers: initialize, session/new in `cwd`,

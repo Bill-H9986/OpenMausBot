@@ -185,6 +185,10 @@ export function findCliCandidates(name: string, path: string = augmentedPath()):
 export interface ResolvedSpawn {
   command: string;
   args: string[];
+  /** Names the shim's own `SET` preamble assigns; a launcher may depend on them (the DeepSeek
+   * `dsh.cmd` runs its Electron host as CLI via `set "ELECTRON_RUN_AS_NODE=1"` — without it the
+   * app boots as its GUI and never answers its ACP stdio). Unset when the shim sets nothing. */
+  env?: Record<string, string>;
 }
 
 /** A mini tokenizer, never a shell: quotes group segments; no escapes, no substitution, nothing evaluated. */
@@ -316,6 +320,56 @@ function parsePowerShellFileShim(shim: string, text: string, env?: NodeJS.Proces
   return null;
 }
 
+/** The fixed args a .cmd exec line carries ahead of its `%*` forwarding slot: the `"<exe>" <flags> "%~dp0\…" %*`
+ * form. Quoted paths that start the shim dir (%~dp0 / %dp0) resolve against it; %* (the caller's args, supplied
+ * later by the resolveWord caller) and any remaining %VAR% are left out. Only the args after the leading exe
+ * target count — token[0] is the command the caller already knows. A line without a forwarding slot returns []. */
+function cmdExecLineArgs(text: string, dir: string): string[] {
+  for (const line of text.split(/\r?\n/)) {
+    const tokens = splitCliString(line);
+    if (!tokens.includes("%*")) continue;
+    const args: string[] = [];
+    for (const token of tokens.slice(1)) {
+      if (token === "%*" || /\%[A-Za-z_][A-Za-z0-9_]*\%/.test(token)) continue;
+      const dp0 = /^%~?dp0%?\\?/i.exec(token);
+      args.push(dp0 ? join(dir, token.slice(dp0[0].length)) : token);
+    }
+    return args;
+  }
+  return [];
+}
+
+/** The variables a shim's own preamble assigns (`set "NAME=value"` / `set NAME=value` lines): a launcher may
+ * set state its exec line depends on — the DeepSeek Harness `dsh.cmd` runs its Electron host as a CLI through
+ * `set "ELECTRON_RUN_AS_NODE=1"`, and a flattened spawn without it boots the app as its GUI (or, with a
+ * running instance, gets folded into Electron's single-instance lock and never answers its ACP stdio).
+ * Whole-quoted `"NAME=value"` and `%~dp0`-prefixed values are unwrapped. */
+function cmdSetPreamble(text: string, dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const head = /^\s*@?SET\s+/i.exec(line);
+    if (!head) continue;
+    let rest = line.slice(head[0].length).trim();
+    if (!rest) continue;
+    if (rest.startsWith('"') && rest.endsWith('"') && rest.length > 1) rest = rest.slice(1, -1);
+    const eq = rest.indexOf("=");
+    if (eq <= 0) continue;
+    const name = rest.slice(0, eq).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue;
+    let value = rest.slice(eq + 1).trim();
+    const quoted = /^"(.*)"$/s.exec(value);
+    if (quoted) value = quoted[1]!;
+    // A `%`-bearing value is the batch's own expansion pipe (`SET dp0=%~dp0`, `%~dp0\…`):
+    // its target already flattened to a real path, and the remainder is meaningless to the
+    // child. Only a literal value is the state a spawn must inherit (ELECTRON_RUN_AS_NODE=1).
+    if (/\%/.test(value)) continue;
+    const dp0 = /^%~?dp0%?[\\/]/i.exec(value);
+    if (dp0) value = join(dir, value.slice(dp0[0].length));
+    out[name] = value;
+  }
+  return out;
+}
+
 /** npm/pnpm .cmd shims spell their target as "%dp0%\..." (or "%~dp0\..."). A PowerShell `-File` launcher is spawnable only for a sibling `.ps1`. */
 function parseCmdShim(shim: string, env?: NodeJS.ProcessEnv): ResolvedSpawn | null {
   let text: string;
@@ -336,7 +390,16 @@ function parseCmdShim(shim: string, env?: NodeJS.ProcessEnv): ResolvedSpawn | nu
     if (node) return { command: node, args: [script] };
   }
   const exe = targets.find((p) => extname(p).toLowerCase() === ".exe");
-  if (exe) return { command: exe, args: [] };
+  if (exe) {
+    // A launcher may run a bare target (the common npm/pnpm case, no fixed args) or a target
+    // with flags a flattened spawn must keep: the DeepSeek Harness `dsh.cmd` is
+    // `"<exe>" --expose-internals "<asar entry>.js" %*`, where the entry lives inside app.asar
+    // and so no target isFile-check sees it. Without that flag the Electron app boots as its
+    // GUI and never speaks ACP on stdin. Keep the exec line's fixed args (%* dropped,
+    // %~dp0 paths resolved) and the shim's SET preamble; a plain `"<exe>" %*` still yields [].
+    const preamble = cmdSetPreamble(text, dir);
+    return { command: exe, args: cmdExecLineArgs(text, dir), ...(Object.keys(preamble).length ? { env: preamble } : {}) };
+  }
   for (const target of targets) {
     const viaNode = parseNodeShebang(target, env);
     if (viaNode) return viaNode;
@@ -375,7 +438,10 @@ function resolveWord(cli: string, args: string[], env?: NodeJS.ProcessEnv): Reso
   const ext = extname(file).toLowerCase();
   if (ext === ".cmd" || ext === ".bat") {
     const direct = parseCmdShim(file, env);
-    return direct ? { command: direct.command, args: [...direct.args, ...args] } : { command: file, args };
+    if (!direct) return { command: file, args };
+    // A launcher's SET preamble is part of its launch contract (a batch assigns it right before the
+    // exec line); a consumer folds it into the spawn env, preamble winning as the batch does.
+    return { command: direct.command, args: [...direct.args, ...args], ...(direct.env ? { env: direct.env } : {}) };
   }
   if (ext === ".exe" || ext === ".com") return { command: file, args };
   const viaNode = parseNodeShebang(file, env);
