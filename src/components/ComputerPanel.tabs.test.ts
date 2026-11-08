@@ -115,7 +115,7 @@ afterEach(() => {
 
 describe("Computer panel tab", () => {
   it("names the tablist from the active catalog", async () => {
-    setLocale("de");
+    setLocale("zh");
     await open(makeBot());
     expect(document.querySelector('[data-testid="computer-tabs"]')?.getAttribute("role")).toBe("tablist");
     expect(tabListName()).toBe(t("computer.tabsAria"));

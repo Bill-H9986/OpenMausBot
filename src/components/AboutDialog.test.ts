@@ -47,10 +47,10 @@ describe("About", () => {
       "Version 0.1.127 · macOS",
       "Connected to Office Mac · version 0.1.116",
     ]);
-    setLocale("de");
+    setLocale("zh");
     expect(aboutVersionLines({ app, bundle: "0.1.116", platform: "macOS", server: "Office Mac" })).toEqual([
-      "Version 0.1.127 · macOS",
-      "Verbunden mit Office Mac · Version 0.1.116",
+      "版本 0.1.127 · macOS",
+      "已连接到 Office Mac · 版本 0.1.116",
     ]);
   });
 });

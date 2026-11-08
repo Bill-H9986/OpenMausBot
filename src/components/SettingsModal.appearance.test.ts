@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale } from "@/lib/i18n";
 import type { SendKey } from "@/lib/send-key";
-import { en, locales } from "@/locales";
+import { en, loadLocalePack, locales } from "@/locales";
 import type { AppSettingsSection } from "@/state/store";
 import type { Switch } from "./SettingsPrimitives";
 import { SECTIONS, sectionMatches, SettingsModal } from "./SettingsModal";
@@ -115,27 +115,6 @@ afterEach(() => {
 const render = () => renderToStaticMarkup(createElement(SettingsModal));
 
 describe("Settings → Appearance", () => {
-  it.each([true, false])("flips Advanced mode from General, first in Advanced and last in Simple, when the switch is %s", (enabled) => {
-    fixture.section = "general";
-    fixture.advancedMode = enabled;
-    const html = render();
-    if (enabled) expect(html.indexOf('aria-label="Advanced mode"')).toBeLessThan(html.indexOf("Language"));
-    else expect(html.indexOf('aria-label="Advanced mode"')).toBeGreaterThan(html.indexOf("Language"));
-    expect(html).toContain('aria-label="Advanced mode"');
-    expect(html).toContain("Nothing is deleted either way");
-    const toggle = fixture.switches.find((props) => props["aria-label"] === "Advanced mode")!;
-    expect(toggle.checked).toBe(enabled);
-    toggle.onClick!({} as never);
-    expect(fixture.setAdvancedMode).toHaveBeenCalledWith(!enabled);
-    expect(fixture.api).not.toHaveBeenCalled();
-    expect(fixture.dispatch).not.toHaveBeenCalled();
-  });
-
-  it("keeps the Advanced mode switch reachable from a paired remote client", () => {
-    vi.stubGlobal("window", { ogb: { remoteClient: { active: true } } });
-    expect(render()).toContain('aria-label="Advanced mode"');
-  });
-
   it("does not repeat the Advanced mode switch in Appearance on this computer", () => {
     expect(render()).not.toContain('aria-label="Advanced mode"');
   });
@@ -251,12 +230,13 @@ describe("Settings → Appearance", () => {
     expect(fixture.dispatch).not.toHaveBeenCalled();
   });
 
-  it("asks Japanese speakers in Japanese, with the key named for this computer", () => {
-    setLocale("ja");
+  it("asks Chinese speakers in Chinese, with the key named for this computer", async () => {
+    await loadLocalePack("zh");
+    setLocale("zh");
     fixture.sendKey = "shift-enter";
     const html = render();
-    expect(html).toContain("メッセージの送信キー");
-    expect(html).toContain("日本語入力のように Enter で変換を確定する場合は、Shift+Enter か Ctrl+Enter を選ぶと Enter で改行できます。");
+    expect(html).toContain("发送消息的按键");
+    expect(html).toContain("选择 Shift+Enter 或 Ctrl+Enter 后，按 Enter 会换行，适合用 Enter 确认候选词的输入法（例如日文输入）。无论选哪一项，Ctrl+Enter 都会发送。仅对这台设备生效。");
     expect(html).toContain('<option value="enter">Enter</option>');
     expect(html).toContain('<option value="shift-enter" selected="">Shift+Enter</option>');
     expect(html).toContain('<option value="mod-enter">Ctrl+Enter</option>');
@@ -374,8 +354,9 @@ describe("Settings → Appearance", () => {
     expect(html).toContain("Older team backups and shareable templates");
   });
 
-  it("renders Appearance and its controls in Japanese", () => {
-    setLocale("ja");
+  it("renders Appearance and its controls in Chinese", async () => {
+    await loadLocalePack("zh");
+    setLocale("zh");
     const html = render();
     for (const key of [
       "settings.section.appearance", "settings.threadDisplay.show",
@@ -383,9 +364,9 @@ describe("Settings → Appearance", () => {
       "settings.pinnedCircles.subtitle", "settings.universalPins.title",
       "settings.universalPins.subtitle",
     ] as const) {
-      expect(locales.ja[key], key).toBeTruthy();
-      expect(locales.ja[key], key).not.toBe(en[key]);
-      expect(html, key).toContain(locales.ja[key]!);
+      expect(locales.zh[key], key).toBeTruthy();
+      expect(locales.zh[key], key).not.toBe(en[key]);
+      expect(html, key).toContain(locales.zh[key]!);
     }
   });
 
@@ -422,27 +403,4 @@ describe("Settings → Appearance", () => {
     expect(render()).not.toContain('<option value="desktopWorkspaces"');
   });
 
-  it("offers optional Organisation settings only through the local desktop bridge", () => {
-    fixture.section = "organization";
-    vi.stubGlobal("window", { ogb: { organization: {} } });
-    const local = render();
-    expect(local).toContain('<option value="organization" selected="">Organization</option>');
-    expect(local).toContain("personal and local models");
-    fixture.section = "appearance";
-    vi.stubGlobal("window", {});
-    expect(render()).not.toContain('<option value="organization"');
-    vi.stubGlobal("window", { ogb: { organization: {}, remoteClient: { active: true } } });
-    expect(render()).not.toContain('<option value="organization"');
-    expect(render()).toContain("Midnight");
-  });
-  it("offers personal Cloud separately and only through the local desktop bridge", () => {
-    fixture.section = "cloudAccount";
-    vi.stubGlobal("window", { ogb: { cloudAccount: {} } });
-    expect(render()).toContain('<option value="cloudAccount" selected="">MausBot Cloud</option>');
-    expect(render()).toContain("Free local use");
-    fixture.section = "appearance";
-    vi.stubGlobal("window", {}); expect(render()).not.toContain('<option value="cloudAccount"');
-    vi.stubGlobal("window", { ogb: { cloudAccount: {}, remoteClient: { active: true } } });
-    expect(render()).not.toContain('<option value="cloudAccount"');
-  });
 });

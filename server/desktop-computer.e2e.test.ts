@@ -118,8 +118,11 @@ describe("this computer belongs to the desktop app's own server", () => {
       writeFileSync(join(folder, "cua-connection.json"), JSON.stringify(record), { mode: 0o600 });
     }
     writeFileSync(join(data, "config.json"), JSON.stringify({ instances: { claude: {
-      driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
-      environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_DUMP: dumpFile, FAKE_CLAUDE_SLOW_FINISH_GATE: finishFile },
+      driver: "deepseekAgent", config: { cli: join(ROOT, "server/testing/fake-acp-cli.ts") },
+      environment: {
+        FAKE_ACP_MODELS: "fake-model",
+        FAKE_ACP_MODE: "echo-gated", FAKE_ACP_DUMP: dumpFile, FAKE_ACP_GATE_FILE: finishFile,
+      },
     } } }));
   });
   afterAll(async () => {
@@ -162,7 +165,10 @@ describe("this computer belongs to the desktop app's own server", () => {
     resetTurn();
     await apiOk("POST", `/api/bots/${bot.id}/messages`, { text: "Open Chrome on this computer.", threadId: task.threadId });
     const sent = await dump();
-    expect(sent.mcpConfig.mcpServers.computer.env.OMB_CUA_COMMAND).toBe("/fixture/cua-driver");
+    // ACP hands each server's env as name/value pairs, not an object.
+    const computerEnv = Object.fromEntries(((sent.mcpConfig?.mcpServers?.computer?.env ?? []) as Array<{ name: string; value: string }>)
+      .map((pair) => [pair.name, pair.value]));
+    expect(computerEnv.OMB_CUA_COMMAND).toBe("/fixture/cua-driver");
     writeFileSync(finishFile, "finish");
     await idle(bot.id, task.threadId);
   });

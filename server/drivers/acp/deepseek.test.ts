@@ -16,10 +16,26 @@ import {
   deepseekSupport,
   deepseekWireValue,
   dshHome,
+  dshChildEnv,
   fetchDeepSeekCatalog,
   hasDeepSeekKey,
   parseDeepSeekCatalog,
 } from "./deepseek.ts";
+
+describe("dshChildEnv", () => {
+  it("covers loopback and disables dsh telemetry on a bare env", () => {
+    const child = dshChildEnv({});
+    expect(child.NO_PROXY).toBe("127.0.0.1,localhost");
+    expect(child.no_proxy).toBe("127.0.0.1,localhost");
+    expect(child.DSH_TELEMETRY_DISABLED).toBe("1");
+  });
+
+  it("keeps the operator's exclusions, adds only what is missing, case-insensitively", () => {
+    const child = dshChildEnv({ NO_PROXY: "corp.example.com, LOCALHOST ", no_proxy: "10.0.0.0/8" });
+    expect(child.NO_PROXY).toBe("corp.example.com,LOCALHOST,127.0.0.1");
+    expect(child.no_proxy).toBe("10.0.0.0/8,127.0.0.1,localhost");
+  });
+});
 
 describe("DeepSeek model ids", () => {
   it("maps a picker id to dsh's JSON pair and back", () => {
@@ -143,7 +159,7 @@ describe("DeepSeek ACP support", () => {
     expect(deepseekSupport.modelVariants).toBe(true);
     expect(deepseekSupport.resumeMethod).toBe("resume");
     expect(deepseekSupport.resolveModelsOnCreate).toBe(false);
-    expect(deepseekSupport.credentialEnv).toEqual(["DEEPSEEK_API_KEY"]);
+    expect(deepseekSupport.credentialEnv).toEqual(["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "CUSTOM_OPENAI_API_KEY", "DSH_TELEMETRY_DISABLED"]);
     expect(deepseekSupport.authFailure).toBe("continue");
     expect(deepseekSupport.pickAuthMethod([], {})).toBeNull();
     expect(deepseekSupport.install?.command?.darwin).toBe("npm install -g @deepseek-ai/dsh");

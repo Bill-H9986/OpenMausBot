@@ -5,7 +5,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { cloudPairingSignature, cloudRequestSignature } from "./cloud-home.ts";
 import { CLOUD_TEAM_ADMIN_PATH } from "./cloud-team-admin.ts";
@@ -33,18 +33,11 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "omb-team-admin-"));
   dataDir = join(home, ".openmausbot");
   mkdirSync(dataDir, { recursive: true });
-  const cli = join(home, "fixture-claude.mjs");
-  writeFileSync(cli, `#!/usr/bin/env node
-if (process.argv[2] === "auth") {
-  console.log(JSON.stringify({ loggedIn: true, email: "mira@gmail.com" }));
-  process.exit(0);
-}
-await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-claude-cli.ts")).href)});
-`, { mode: 0o755 });
+  const cli = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({
     instances: {
       ...Object.fromEntries(["codex", "cursor", "githubCopilot", "openaiCompat", "qwen", "hermes", "pi"].map((id) => [id, { driver: "not-a-real-driver" }])),
-      claude: { driver: "claudeAgent", displayName: "Claude", config: { cli } },
+      claude: { driver: "deepseekAgent", displayName: "Claude", config: { cli }, environment: { FAKE_ACP_MODELS: "fake-model", DEEPSEEK_API_KEY: "fixture-deepseek-key" } },
     },
     treg: { key: "treg-key-never-shown" },
     mcpServers: { linear: { type: "http", url: "https://mcp.linear.app/sse?token=query-never-shown", headers: { Authorization: "Bearer header-never-shown" } } },
@@ -88,7 +81,8 @@ it("the Admin reads a Team Cloud's shared connections and AI by a signed request
   }, { timeout: 20_000, interval: 200 }).toBe(true);
   expect(summary.mcp).toEqual([{ name: "linear", transport: "http", host: "mcp.linear.app", enabled: true, signedIn: null, secrets: ["Authorization"] }]);
   expect(summary.keys.find((key: { id: string }) => key.id === "treg")).toEqual({ id: "treg", configured: true });
-  expect(summary.ai.engines.find((engine: { id: string }) => engine.id === "claude")).toMatchObject({ name: "Claude", authenticated: true, account: { email: "mira@gmail.com" } });
+  // DSH reports authentication as a DeepSeek key, not a vendor login with an email account.
+  expect(summary.ai.engines.find((engine: { id: string }) => engine.id === "claude")).toMatchObject({ name: "Claude", authenticated: true });
   expect(JSON.stringify(summary)).not.toMatch(/never-shown|token=|Bearer/);
   // Unsigned, or with any other key: nothing.
   expect((await call("GET", CLOUD_TEAM_ADMIN_PATH)).status).toBe(401);

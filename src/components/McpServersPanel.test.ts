@@ -86,7 +86,7 @@ describe("MCP server form", () => {
   });
 
   it("retains the offending name while an existing error changes language", () => {
-    setLocale("de");
+    setLocale("en");
     const result = rowsBody([secretRow({ name: "TOKEN WITH SPACE", value: "v" })], "env");
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("Expected an environment error");

@@ -12,7 +12,7 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const FAKE_CLI = join(ROOT, "server/testing/fake-claude-cli.ts");
+const FAKE_CLI = join(ROOT, "server/testing/fake-acp-cli.ts");
 
 const homes: string[] = [];
 const children: ChildProcess[] = [];
@@ -27,13 +27,21 @@ function freshHome(extra: Record<string, unknown> = {}): string {
   const home = mkdtempSync(join(tmpdir(), "omb-tested-ai-"));
   homes.push(home);
   mkdirSync(join(home, "tmp"), { recursive: true });
-  mkdirSync(join(home, "spare-claude"), { recursive: true });
+  // The static dsh catalog names ids the fake does not offer, so seed the startup model cache.
+  mkdirSync(join(home, "providers", "engine-models"), { recursive: true });
+  for (const instanceId of ["claude", "spare"]) {
+    writeFileSync(join(home, "providers", "engine-models", `${instanceId}.json`),
+      JSON.stringify({ default: "fake-model", options: [{ id: "fake-model", label: "Fake model" }] }));
+  }
+  writeFileSync(join(home, "claude-failure.json"), JSON.stringify({ code: -32603, message: "fake connection check failed" }));
   writeFileSync(join(home, "config.json"), JSON.stringify({
     instances: {
-      claude: { driver: "claudeAgent", displayName: "Silent Claude", config: { cli: FAKE_CLI },
-        environment: { FAKE_CLAUDE_CHECK: "fail", FAKE_CLAUDE_CHECK_LOG: join(home, "claude-checks.jsonl") } },
-      spare: { driver: "claudeAgent", displayName: "Spare Claude", config: { cli: FAKE_CLI, configDir: join(home, "spare-claude") },
-        environment: { FAKE_CLAUDE_CHECK_LOG: join(home, "spare-checks.jsonl") } },
+      claude: { driver: "deepseekAgent", displayName: "Silent Claude", config: { cli: FAKE_CLI },
+        environment: { FAKE_ACP_MODELS: "fake-model", DEEPSEEK_API_KEY: "sk-fixture", FAKE_ACP_DUMP: join(home, "claude-check.json"),
+          FAKE_ACP_PROMPT_TEXT: "1", FAKE_ACP_RPC_FAILURE_FILE: join(home, "claude-failure.json") } },
+      spare: { driver: "deepseekAgent", displayName: "Spare Claude", config: { cli: FAKE_CLI },
+        environment: { FAKE_ACP_MODELS: "fake-model", DEEPSEEK_API_KEY: "sk-fixture", FAKE_ACP_TEXT_REPLY: "OK",
+          FAKE_ACP_DUMP: join(home, "spare-check.json"), FAKE_ACP_PROMPT_TEXT: "1" } },
     },
     ...extra,
   }));
@@ -64,8 +72,12 @@ async function boot(home: string) {
     expect(response.ok, `${method} ${path}`).toBe(true);
     return response.json() as Promise<any>;
   };
-  const sent = (instance: string) => existsSync(join(home, `${instance}-checks.jsonl`))
-    ? readFileSync(join(home, `${instance}-checks.jsonl`), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line).prompt as string) : [];
+  const sent = (instance: string) => {
+    const file = join(home, `${instance}-check.json.prompts.jsonl`);
+    return existsSync(file)
+      ? readFileSync(file, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line).text as string)
+      : [];
+  };
   const tests = async () => Object.fromEntries(((await api("GET", "/api/instances")).instances as Array<{ instanceId: string; aiTest?: string }>)
     .filter((instance) => instance.instanceId === "claude" || instance.instanceId === "spare")
     .map((instance) => [instance.instanceId, instance.aiTest ?? null]));
@@ -99,7 +111,7 @@ it("moves nothing on one miss, then the default and the untouched first bot to t
 }, 90_000);
 
 it("never tests or moves a saved default", async () => {
-  const server = await boot(freshHome({ defaultModelSelection: { instanceId: "claude", model: "claude-sonnet-5" } }));
+  const server = await boot(freshHome({ defaultModelSelection: { instanceId: "claude", model: "fake-model" } }));
   await new Promise((resolve) => setTimeout(resolve, 3_000));
   expect(await server.tests()).toEqual({ claude: null, spare: null });
   expect(server.sent("claude")).toEqual([]);

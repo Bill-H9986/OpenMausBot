@@ -20,7 +20,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /** Outside the bot name pool, so no suite can plan a bot that collides with the
  * starter. */
 export const FIXTURE_STARTER_BOT_NAME = "Fixture Starter";
-const FAKE_CLI = join(ROOT, "server", "testing", "fake-claude-cli.ts");
+const FAKE_CLI = join(ROOT, "server", "testing", "fake-acp-cli.ts");
 
 export class ControlOmbError extends HeadlessError {
   constructor(message: string, hint?: string) {
@@ -166,7 +166,7 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
   // The fake engines' knobs are the one thing a caller may script into the child.
   for (const [key, value] of Object.entries(parentEnv)) {
     // FAKE_CLAUDE_DUMP stays the launcher's: assertions read fixtureDumpPath.
-    if ((key.startsWith("FAKE_CLAUDE_") || key.startsWith("FAKE_CODEX_TEXT_") || key.startsWith("FAKE_CODEX_COMMAND") || key === "FAKE_ACP_HANG_ON") && key !== "FAKE_CLAUDE_DUMP" && value) childEnv[key] = value;
+    if (key.startsWith("FAKE_") && key !== "FAKE_CLAUDE_DUMP" && value) childEnv[key] = value;
   }
   // Enables POST /api/testing/org-library; the route does not exist without it.
   if (parentEnv.OMB_TEST_ORG_LIBRARY_KEY) childEnv.OMB_TEST_ORG_LIBRARY_KEY = parentEnv.OMB_TEST_ORG_LIBRARY_KEY;
@@ -320,10 +320,14 @@ export async function launchVerificationServer(
         environment: { FAKE_ACP_MODELS: "fixture-fast,fixture-deep", FAKE_ACP_DUMP: join(dataDir, "custom-acp-launch.json") },
       } } : {}),
       claude: {
-        driver: "claudeAgent",
+        driver: "deepseekAgent",
         displayName: "Verification fixture",
         config: { cli: FAKE_CLI },
-        ...(room?.scripted ? { environment: { FAKE_CLAUDE_ROOM_PLAN: join(dataDir, "room-plan.json") } } : {}),
+        environment: {
+          FAKE_ACP_MODELS: "fake-model,fake-model-b",
+          FAKE_ACP_DUMP: fixtureDumpPath,
+          ...(room?.scripted ? { FAKE_ACP_MODE: "room-plan", FAKE_ACP_ROOM_PLAN: join(dataDir, "room-plan.json") } : {}),
+        },
       },
     },
   }, null, 2));

@@ -131,7 +131,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
     claude: { driver: "claudeAgent", displayName: "Claude", config: { cli } },
     // A model that uses the Mac, asks a question, and uses it again once the
     // card is answered (fake-acp-cli.ts "lend-question").
-    grok: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "lend-question" }, config: { cli: join(SERVER_DIR, "testing", "fake-acp-cli.ts"), fullAuto: false } },
+    deepseek: { driver: "deepseekAgent", environment: { FAKE_ACP_MODE: "lend-question", FAKE_ACP_MODELS: "fake-model" }, config: { cli: join(SERVER_DIR, "testing", "fake-acp-cli.ts"), fullAuto: false } },
   } }));
   chmodSync(join(SERVER_DIR, "testing", "fake-acp-cli.ts"), 0o755);
   port = await freePortBlock([0, 1]);
@@ -232,7 +232,7 @@ it("the person's Mac, lent by itself through the real connector, is usable by th
     expect((await api("POST", `/api/routines/${routine.id}/run`, { token: owner })).status).toBe(201);
   }, routine.botId);
   const newAcpBot = async (name: string) => {
-    const created = (await api("POST", "/api/bots", { token: owner, body: { name, modelSelection: { instanceId: "grok", model: "fake-model" } } })).body.bot;
+    const created = (await api("POST", "/api/bots", { token: owner, body: { name, modelSelection: { instanceId: "deepseek", model: "fake-model" } } })).body.bot;
     return { id: created.id as string, threadId: created.threadId as string };
   };
   const bot = await newBot("Cloud bot");

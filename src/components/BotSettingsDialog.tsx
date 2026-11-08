@@ -1,38 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Search, X } from "lucide-react";
 
-import { useStore, type Bot, type BotSettingsSection } from "@/state/store";
+import { useStore, type Bot } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useCaptionChrome } from "./DesktopCapabilities";
 import { BOT_SECTIONS } from "./bot-settings/sections";
 import { useBotSettingsDerived } from "./bot-settings/useBotSettingsDerived";
+import { useBotOverview } from "./bot-settings/useBotOverview";
 import { OverviewSection } from "./bot-settings/OverviewSection";
 import { IdentitySection } from "./bot-settings/IdentitySection";
-import { SlackSection } from "./bot-settings/SlackSection";
-import { useSlackManagementUrl } from "./bot-settings/useSlackManagement";
 import { SoulSection } from "./bot-settings/SoulSection";
 import { SkillsSection } from "./bot-settings/SkillsSection";
 import { MemorySection } from "./bot-settings/MemorySection";
 import { RoutinesSection } from "./bot-settings/RoutinesSection";
 import { AccessSection } from "./bot-settings/AccessSection";
 import { ModelSection } from "./bot-settings/ModelSection";
-import { PermissionsSection } from "./bot-settings/PermissionsSection";
-import { VoiceSection } from "./bot-settings/VoiceSection";
-import { HistorySection } from "./bot-settings/HistorySection";
-import { UsageSection } from "./bot-settings/UsageSection";
-import { VisibilitySection } from "./bot-settings/VisibilitySection";
 import { t } from "@/lib/i18n";
 import { useAdvancedMode } from "@/lib/interface-mode";
 import { BotPanel } from "./bot-panel/PanelShell";
-import { LibraryTab } from "./bot-panel/LibraryTab";
-import type { SimplePageId } from "./bot-panel/page-registry";
 import { BOT_PANEL_ID, sidePanelCls } from "./bot-panel/side-panel";
-import { HistoryRollbackDialog, useBotHistory, useBotOverview } from "./bot-settings/useBotOverview";
-import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
-import { ShareBotButton, useTeamName } from "./bot-access/ShareBotButton";
+import { ShareBotButton } from "./bot-access/ShareBotButton";
 
-/** Where the Library's memory, skills and folder rows lead in Advanced settings. */
-const LIBRARY_LINKS: Partial<Record<SimplePageId, BotSettingsSection>> = { memory: "memory", skills: "skills", folder: "access" };
 
 const sectionLabel = (entry: (typeof BOT_SECTIONS)[number]) => (entry.labelKey ? t(entry.labelKey) : entry.label);
 
@@ -56,19 +44,13 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const advanced = useAdvancedMode();
   const simpleView = !advanced;
   const linkedSection = !collapsed && !state.botSettingsExpandRemembered ? section : null;
-  const slackUrl = useSlackManagementUrl(bot.id);
-  const ownerOrAdmin = useOwnerOrAdmin();
-  const teamName = useTeamName();
-  const sections = BOT_SECTIONS
-    .filter((entry) => entry.id !== "slack" || slackUrl !== null)
-    .filter((entry) => entry.id !== "visibility" || (!window.ogb && ownerOrAdmin === true && !teamName));
+  const sections = BOT_SECTIONS;
   const visibleSections = sections.filter((entry) => sectionMatches(entry, q));
 
   const { overview, overviewError, prompt, promptError } = useBotOverview(bot, {
     overview: section === "overview" && !simpleView,
     prompt: section === "overview" && !simpleView,
   });
-  const history = useBotHistory(bot, section === "history" && !simpleView);
 
   useEffect(() => {
     if (collapsed) return;
@@ -130,40 +112,16 @@ export function BotSettingsDialog({ bot, overlay = false }: {
         );
       case "soul":
         return <SoulSection bot={bot} patch={derived.patch} />;
-      case "slack":
-        return slackUrl ? <SlackSection managementUrl={slackUrl} /> : null;
       case "skills":
         return <SkillsSection bot={bot} />;
       case "memory":
         return <MemorySection bot={bot} active={!collapsed && section === "memory"} onToggle={(enabled) => derived.patch({ memoryEnabled: enabled })} />;
-      case "library":
-        return <LibraryTab bot={bot} onOpen={(page) => dispatch({ type: "toggleSettings", open: true, section: LIBRARY_LINKS[page] ?? "overview" })} />;
       case "routines":
         return <RoutinesSection bot={bot} routines={derived.botRoutines} runs={state.routineRuns} />;
       case "access":
         return <AccessSection bot={bot} derived={derived} />;
       case "model":
         return <ModelSection bot={bot} />;
-      case "permissions":
-        return <PermissionsSection bot={bot} derived={derived} />;
-      case "voice":
-        return <VoiceSection bot={bot} derived={derived} />;
-      case "visibility":
-        return <VisibilitySection bot={bot} />;
-      case "history":
-        return history.rows === null && history.error ? (
-          <div className="rounded-xl bg-card p-4 text-[13px] text-ink-secondary">Couldn’t load history.</div>
-        ) : (
-          <HistorySection
-            bot={bot}
-            rows={history.rows}
-            refreshError={history.rows !== null && history.error}
-            onRollback={history.requestRollback}
-            rollingBack={history.rollingBack || !history.revision}
-          />
-        );
-      case "usage":
-        return <UsageSection bot={bot} />;
       default:
         return null;
     }
@@ -282,7 +240,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
         </div>
         </>}
       </aside>
-      <HistoryRollbackDialog history={history} returnFocusRef={dialogRef} />
     </>
   );
 }

@@ -12,7 +12,7 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const FAKE_CLAUDE = join(ROOT, "server/testing/fake-claude-cli.ts");
+const FAKE_ACP = join(ROOT, "server/testing/fake-acp-cli.ts");
 const INCLUDED = `box_omb_${randomUUID()}`;
 const FRAME = Buffer.from("/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==", "base64");
 /** One computer call waits this long on a start; the whole start, this long. */
@@ -63,11 +63,20 @@ describe("a slow cloud computer start", () => {
     await api("POST", `/api/bots/${botId}/messages`, { text, ...(threadId ? { threadId } : {}) });
     return until((): any => {
       if (!existsSync(dumpFile)) return null;
-      try { return JSON.parse(readFileSync(dumpFile, "utf8")); } catch { return null; }
+      try {
+        const parsed = JSON.parse(readFileSync(dumpFile, "utf8"));
+        // The process dumps at launch, and the session servers join the dump at session/new. A catalog
+        // or version probe writes the dump too, so the turn is the dump whose session mounted the computer.
+        return parsed.mcpServers?.some?.((server: any) => server?.name === "computer") ? parsed : null;
+      } catch { return null; }
     }, Boolean);
   };
+  const envOf = (entry: any) => Object.fromEntries(((entry?.env ?? []) as Array<{ name: string; value: string }>).map((pair) => [pair.name, pair.value]));
+  /** Servers by name: a fresh process dumps them as the ACP array, a resumed one also maps them. */
+  const serversOf = (sent: any) => sent.mcpConfig?.mcpServers
+    ?? Object.fromEntries(((sent.mcpServers ?? []) as Array<{ name: string }>).map((server) => [server.name, server]));
   const screenshot = async (sent: any) => {
-    const env = sent.mcpConfig.mcpServers.computer.env;
+    const env = envOf(serversOf(sent).computer);
     const response = await fetch(new URL("/api/internal/computer/mcp", env.OMB_HARNESS_URL), {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${env.OMB_MCP_TOKEN_COMPUTER}` },
@@ -79,7 +88,7 @@ describe("a slow cloud computer start", () => {
   };
   const cloudBot = async (name: string) => {
     const { bot } = await api("POST", "/api/bots", { name });
-    await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, browser: false, computer: "cloud" });
+    await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "fake-model" }, browser: false, computer: "cloud" });
     return bot as { id: string; threadId: string };
   };
 
@@ -138,8 +147,11 @@ describe("a slow cloud computer start", () => {
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, "config.json"), JSON.stringify({ instances: {
       claude: {
-        driver: "claudeAgent", config: { cli: FAKE_CLAUDE },
-        environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_DUMP: dumpFile, FAKE_CLAUDE_SLOW_FINISH_GATE: finishFile },
+        driver: "deepseekAgent", config: { cli: FAKE_ACP },
+        environment: {
+          FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: finishFile, FAKE_ACP_DUMP: dumpFile,
+          FAKE_ACP_MODELS: "fake-model", DEEPSEEK_API_KEY: "sk-fixture",
+        },
       },
     } }));
     const port = await freePortBlock([0, 1]);

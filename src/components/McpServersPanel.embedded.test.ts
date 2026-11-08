@@ -22,14 +22,13 @@ vi.mock("@/state/store", () => ({
   api: vi.fn(() => new Promise(() => {})),
   useStore: () => ({ state: { config: null }, dispatch: vi.fn() }),
 }));
-import { HOSTED_MCP_APPS } from "@/lib/hosted-mcp-apps";
 import { McpServersPanel } from "./McpServersPanel";
 
-function render(embedded: boolean, cards = false, hideHosted = false) {
+function render(embedded: boolean) {
   function Capture() {
     fixture.index = 0;
     fixture.counting = true;
-    try { return McpServersPanel({ embedded, hideHosted, hostedCards: cards ? { shown: () => true, onConnections: () => {} } : undefined }); } finally { fixture.counting = false; }
+    try { return McpServersPanel({ embedded }); } finally { fixture.counting = false; }
   }
   return renderToStaticMarkup(createElement(Capture));
 }
@@ -77,57 +76,13 @@ describe("Your MCP servers inside the Apps pop-up", () => {
     expect(html).toContain("Add server");
   });
 
-  it.each(HOSTED_MCP_APPS)("offers $label setup with no API key form or forced installation", (app) => {
-    fixture.servers = [];
-    const html = render(true, true);
-    expect(html).toContain(`data-app-tile="${app.id}"`);
-    expect(html).toContain(`aria-label="Connect ${app.label}"`);
-    expect(html).toContain("No API key needed");
-    expect(html).not.toContain("<textarea");
-    expect(html).not.toContain("Your MCP servers");
-    expect(html).not.toContain("Paste config");
-  });
-
-  it("explains Whop's admin access on its card", () => {
-    fixture.servers = [];
-    expect(render(true, true)).toContain("admin access across businesses");
-  });
-
-  it.each(HOSTED_MCP_APPS)("recognizes an existing $label URL under any name and exposes access and disconnect", (app) => {
-    fixture.servers = [{ name: "business", type: "http", url: app.url, headerKeys: [], enabled: true, auth: "signed-in" }];
-    const html = render(true);
-    expect(html).toContain(`data-hosted-server="${app.id}"`);
-    expect(html).toContain(`Disconnect ${app.label}`);
-    expect(html).toContain("Bot access");
-  });
-
-  it.each(HOSTED_MCP_APPS)("does not brand an unrelated endpoint just because its name is $id", (app) => {
-    fixture.servers = [{ name: app.id, type: "http", url: "https://unrelated.example/mcp", headerKeys: [], enabled: false }];
-    const html = render(true);
-    expect(html).not.toContain("data-hosted-server");
-    expect(html).not.toContain(`Connect ${app.label}`);
-  });
-
-  it("hides every hosted app's server and Postiz from the All list, and shows them again under MCP", () => {
-    fixture.servers = [
-      ...HOSTED_MCP_APPS.map((app) => ({ name: app.id, type: "http", url: app.url, headerKeys: [], enabled: true, auth: "signed-in" })),
-      { name: "docs", type: "http", url: "https://mcp.example.com/mcp", headerKeys: [], enabled: false },
-    ];
-    const listed = render(true);
-    expect(listed).toContain('aria-label="Edit docs"');
-    for (const app of HOSTED_MCP_APPS) expect(listed).toContain(`data-hosted-server="${app.id}"`);
-    const hidden = render(true, false, true);
-    expect(hidden).toContain('aria-label="Edit docs"');
-    expect(hidden).not.toContain("data-hosted-server");
-  });
-
   it.each([true, false])("shows the paste step openly only when the browser cannot come back (pasteBack %s)", (pasteBack) => {
     fixture.servers = [{ name: "whop", type: "http", url: "https://mcp.whop.com/mcp", headerKeys: [], enabled: true, auth: "needs-sign-in" }];
     fixture.seeded = {
       [SIGNING_IN]: "whop",
       [SIGN_IN_FLOW]: { phase: "waiting", flowId: "00000000-0000-4000-8000-000000000000", authorizationUrl: "https://whop.example/authorize", ...(pasteBack ? { pasteBack } : {}) },
     };
-    for (const html of [render(true, true), render(true)]) {
+    for (const html of [render(true)]) {
       expect(html).toContain('id="mcp-callback-whop"');
       if (pasteBack) {
         expect(html).toContain("your browser shows a page that can&#x27;t load. Copy that page&#x27;s full address and paste it here.");

@@ -91,12 +91,12 @@ describe("the update row for another server the app shows", () => {
     expect(serverUpdateRow("available", npm, "0.1.116", null).label).toBe("Version 0.1.127 available (release notes)");
   });
 
-  it("says it in German too", () => {
-    setLocale("de");
+  it("says it in Chinese too", () => {
+    setLocale("zh");
     try {
       expect(serverUpdateRow("available", npm, "0.1.116", "Office Mac")).toEqual({
-        label: "Office Mac kann auf 0.1.127 aktualisiert werden",
-        subtitle: "Wer diesen Server betreibt, aktualisiert ihn mit: npm install -g openmausbot@latest und startet ihn danach neu",
+        label: "Office Mac 可更新到 0.1.127",
+        subtitle: "由运行该服务器的人使用以下命令更新：npm install -g openmausbot@latest，然后重启它",
       });
     } finally {
       setLocale("en");

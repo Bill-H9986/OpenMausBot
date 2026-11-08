@@ -79,7 +79,7 @@ posixOnly("a routine run's task on the event stream", () => {
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, "config.json"), JSON.stringify({
       signIn: { admins: [OWNER], members: [] },
-      instances: { grok: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: false } } },
+      instances: { grok: { driver: "deepseekAgent", environment: { FAKE_ACP_MODELS: "fake-model" }, config: { cli: FAKE_CLI, fullAuto: false } } },
     }));
     const registry = new SessionRegistry({ file: join(data, "sessions.json"), emailScopes: () => ["admin", "client"] });
     token = registry.issue({ label: "Owner's laptop", email: OWNER, scopes: ["admin", "client"] }).token;

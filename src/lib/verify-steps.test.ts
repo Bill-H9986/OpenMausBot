@@ -258,10 +258,8 @@ describe("runSummary", () => {
   it("translates unverified and status labels using the active locale", () => {
     const steps = runSteps([claude(DOCTOR, true), acp(PRESS)]);
     try {
-      setLocale("es");
-      expect(runSummary(steps).label).toBe("2 pasos · 2 verificados · 1 sin resultado");
-      setLocale("ja");
-      expect(runSummary(steps).label).toBe("2 ステップ · 2 件検証済み · 1 件結果なし");
+      setLocale("zh");
+      expect(runSummary(steps).label).toBe("2 个步骤 · 2 项已验证 · 1 项没有结果");
     } finally {
       setLocale("en");
     }

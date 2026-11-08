@@ -37,9 +37,9 @@ describe("Run log", () => {
   });
   it("translates unverified status in active locale", () => {
     try {
-      setLocale("es");
+      setLocale("zh");
       const html = render(timelineEvents([{ id: "c", at: 3, role: "bot", kind: "activity", tool: { name: "Read" } }]));
-      expect(html).toContain("Sin resultado");
+      expect(html).toContain("没有结果");
     } finally {
       setLocale("en");
     }

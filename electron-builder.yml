@@ -130,6 +130,13 @@ mac:
     # node_modules entry of any tree it copies (app-builder-lib util/filter).
     - from: dist-native/duckdb/darwin-${arch}/node_modules
       to: duckdb/node_modules
+    # Embedded dsh runtime: the app launches it under Electron's own
+    # executable in Node mode, so its dependency closure must resolve on
+    # disk. prepare-dsh-runtime stages the pnpm closure without symlinks;
+    # the copy names the node_modules directory itself, as the filter
+    # drops a root-level node_modules entry of any tree it copies.
+    - from: dist-native/dsh/darwin-${arch}/node_modules
+      to: dsh/node_modules
   extendInfo:
     NSMicrophoneUsageDescription: OpenMausBot uses the microphone for voice dictation into the composer.
     NSSpeechRecognitionUsageDescription: OpenMausBot transcribes your voice on-device to type messages for you.
@@ -172,6 +179,10 @@ win:
       to: browser-engine
     - from: dist-native/duckdb/win32-x64/node_modules
       to: duckdb/node_modules
+    # Embedded dsh runtime; see the mac entry. The staging is per-arch,
+    # so each arch's optional platform binaries travel with that arch.
+    - from: dist-native/dsh/win32-x64/node_modules
+      to: dsh/node_modules
     # CUA driver and SDK for Windows — must live outside ASAR for native modules
     - from: dist-native/cua-win32-x64/cua-driver.exe
       to: cua-driver.exe
@@ -225,6 +236,9 @@ linux:
       to: browser-engine
     - from: dist-native/duckdb/linux-x64/node_modules
       to: duckdb/node_modules
+    # Embedded dsh runtime; see the mac entry.
+    - from: dist-native/dsh/linux-x64/node_modules
+      to: dsh/node_modules
     - from: build/linux-openmausbot-browser.apparmor
       to: openmausbot-browser.apparmor
   desktop:

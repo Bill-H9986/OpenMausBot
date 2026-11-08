@@ -14,7 +14,8 @@ import { newBotDefaultsSchema, type NewBotDefaults } from "./new-bot-defaults.ts
 import { replaySettings } from "./replay-settings.ts";
 import { EFFORT_LEVELS, type EffortLevel } from "../shared/wire.ts";
 import { isModelVariant, type InstanceConfigMap, type McpServerSpec, type ModelSelection } from "./contracts.ts";
-import { API_KEY_FLEET, DEFAULT_FLEET, OPENAI_API_INSTANCE, OPENROUTER_API_INSTANCE, CLAUDE_API_INSTANCE, PRODUCT_FLEET_ADDITIONS } from "./instance-fleets.ts";
+import { DEFAULT_FLEET, OPENAI_API_INSTANCE, OPENROUTER_API_INSTANCE, CLAUDE_API_INSTANCE } from "./instance-fleets.ts";
+import { looksOpenAICompatible } from "./drivers/openai-compat.ts";
 export { CLAUDE_API_INSTANCE, OPENAI_API_INSTANCE, OPENROUTER_API_INSTANCE, XAI_API_INSTANCE } from "./instance-fleets.ts";
 import { DEFAULT_WINDOW_MINUTES, MAX_WINDOW_MINUTES } from "./cache-keepwarm.ts";
 import { PROVIDER_ICON_PRESETS, providerIconError } from "../shared/provider-icon.ts";
@@ -339,7 +340,9 @@ const appConfigSchema = z.object({
   groq: z.object({ key: optionalText, url: optionalText }).optional(),
   greenference: z.object({ key: optionalText }).optional(),
   meta: z.object({ key: optionalText, url: optionalText }).optional(),
-  deepseek: z.object({ key: optionalText }).optional(),
+  deepseek: z.object({ key: optionalText, baseUrl: optionalText }).optional(),
+  /** Self-hosted or third-party OpenAI-compatible endpoint served through the DeepSeek Harness (llm-pi-ai provider). */
+  customOpenAI: z.object({ baseUrl: optionalText, apiKey: optionalText, models: z.array(z.string()).optional() }).optional(),
   xai: z.object({ key: optionalText, url: optionalText }).optional(),
   /** Anthropic API key for Claude Code billed per token; `url` is for a proxy or test double. Never a login OAuth token. */
   anthropic: z.object({ key: optionalText, url: optionalText, everyClaudeBot: z.boolean().optional() }).optional(),
@@ -490,7 +493,8 @@ export interface AppConfig extends HelperConfig {
   greenference?: { key?: string };
   meta?: { key?: string; url?: string };
   /** DeepSeek API key for the DeepSeek Harness engine (`dsh`). */
-  deepseek?: { key?: string };
+  deepseek?: { key?: string; baseUrl?: string };
+  customOpenAI?: { baseUrl?: string; apiKey?: string; models?: string[] };
   /** `everyClaudeBot`: the key runs every Claude bot instead of its login; unset means true. */
   anthropic?: { key?: string; url?: string; everyClaudeBot?: boolean };
   openai?: { key?: string };
@@ -716,9 +720,9 @@ function fallbackEnv(entry: InstanceConfigMap[string]): string[] {
     case "cerebras": return ["CEREBRAS_API_KEY"];
     case "grok": return [named ?? "XAI_API_KEY"];
     case "openai-compat":
-      return named && Object.values(API_KEY_FLEET).some((own) => (own.config as { apiKeyEnv?: string } | undefined)?.apiKeyEnv === named)
+      return named
         ? [named]
-        : [...new Set([named ?? "OPENAI_COMPAT_API_KEY", "OPENAI_COMPAT_API_KEY", "OPENAI_COMPAT_URL", "OPENAI_COMPAT_MODEL", "OPENAI_COMPAT_PROVIDER"])];
+        : [...new Set(["OPENAI_COMPAT_API_KEY", "OPENAI_COMPAT_URL", "OPENAI_COMPAT_MODEL", "OPENAI_COMPAT_PROVIDER"])];
     default: return [];
   }
 }
@@ -1162,6 +1166,13 @@ function injectedEnvironment(cfg: AppConfig, instanceId: string, driver: string)
   if (driver === "greenference" && cfg.greenference?.key) environment.set("GREENFERENCE_API_KEY", cfg.greenference.key);
   if (driver === "meta" && cfg.meta?.key) environment.set("META_API_KEY", cfg.meta.key);
   if (driver === "deepseekAgent" && cfg.deepseek?.key) environment.set("DEEPSEEK_API_KEY", cfg.deepseek.key);
+  if (driver === "deepseekAgent" && cfg.deepseek?.baseUrl) environment.set("DEEPSEEK_BASE_URL", cfg.deepseek.baseUrl);
+  if (driver === "deepseekAgent" && cfg.customOpenAI?.apiKey) environment.set("CUSTOM_OPENAI_API_KEY", cfg.customOpenAI.apiKey);
+  if (driver === "deepseekAgent" && cfg.customOpenAI?.baseUrl) environment.set("CUSTOM_OPENAI_BASE_URL", cfg.customOpenAI.baseUrl);
+  if (driver === "deepseekAgent" && cfg.customOpenAI?.models?.length) environment.set("CUSTOM_OPENAI_MODELS", JSON.stringify(cfg.customOpenAI.models));
+  // The legacy OpenAI-compatible block is the fallback BYOM endpoint for a DeepSeek Harness without a customOpenAI block.
+  if (driver === "deepseekAgent" && !cfg.customOpenAI?.apiKey && cfg.openaiCompat?.key) environment.set("CUSTOM_OPENAI_API_KEY", cfg.openaiCompat.key);
+  if (driver === "deepseekAgent" && !cfg.customOpenAI?.baseUrl && cfg.openaiCompat?.url) environment.set("CUSTOM_OPENAI_BASE_URL", cfg.openaiCompat.url);
   if (driver === "grok" && cfg.xai?.key) environment.set("XAI_API_KEY", cfg.xai.key);
   if (driver === "claudeAgent") for (const [name, value] of Object.entries(anthropicKeyEnv(cfg.anthropic, instanceId === CLAUDE_API_INSTANCE))) environment.set(name, value);
   if (driver === "openai-compat" && instanceId === OPENAI_API_INSTANCE) {
@@ -1184,45 +1195,19 @@ function injectedEnvironment(cfg: AppConfig, instanceId: string, driver: string)
 export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
   const configured = cfg.instances && Object.keys(cfg.instances).length ? cfg.instances : null;
   const map: InstanceConfigMap = withoutComputerEngine(configured ? { ...configured } : { ...DEFAULT_FLEET });
-  if (
-    configured &&
-    (Object.hasOwn(configured, "claude") || Object.hasOwn(configured, "grok") || Object.hasOwn(configured, "codex"))
-  ) {
-    for (const [id, entry] of Object.entries(PRODUCT_FLEET_ADDITIONS)) {
-      if (!Object.hasOwn(map, id)) map[id] = { ...entry };
-    }
-  }
-  // Re-applied on every load so the openai/openrouter instances never fall back to the shared key and URL.
-  for (const [id, builtIn] of Object.entries(API_KEY_FLEET)) {
-    const saved = map[id];
-    if (!saved || saved.driver !== builtIn.driver) continue;
-    const savedConfig = typeof saved.config === "object" && saved.config !== null && !Array.isArray(saved.config) ? saved.config : {};
-    map[id] = { ...builtIn, ...saved, config: { ...(builtIn.config as object | undefined), ...savedConfig } };
-  }
-  if (map.chatgpt?.driver === "codex" && !(map.chatgpt.config as { cli?: unknown } | undefined)?.cli) {
-    const cli = (map.codex?.config as { cli?: unknown } | undefined)?.cli;
-    if (typeof cli === "string" && cli) map.chatgpt = { ...map.chatgpt, config: { ...map.chatgpt.config as object, cli } };
+  // A configured OpenAI-compatible endpoint implies its engine, even a default fleet that ships without it.
+  if ((cfg.openaiCompat?.url || cfg.openaiCompat?.key) && map.openaiCompat === undefined) {
+    map.openaiCompat = { driver: "openai-compat" };
   }
   for (const [id, sourceEntry] of Object.entries(map)) {
     // Copy: writing into the caller's persisted entry would freeze the workspace URL into it.
     const entry = { ...sourceEntry };
     map[id] = entry;
     const environment = { ...entry.environment };
-    const builtIn = API_KEY_FLEET[id];
-    const routingDefaults = builtIn?.driver === entry.driver
-      ? builtIn.config as { url?: string; apiKeyEnv?: string } | undefined
-      : undefined;
-    const ownsRouting = instanceOwnsRouting(cfg, entry, routingDefaults);
-    if (!ownsRouting) {
+    if (!instanceOwnsRouting(cfg, entry)) {
       for (const [key, value] of injectedEnvironment(cfg, id, entry.driver)) environment[key] = value;
     }
     entry.environment = environment;
-    if (entry.driver === "groq" && cfg.groq?.url && !ownsRouting) {
-      entry.config = { ...entry.config as object, url: cfg.groq.url };
-    }
-    if (entry.driver === "meta" && cfg.meta?.url && !ownsRouting) {
-      entry.config = { ...entry.config as object, url: cfg.meta.url };
-    }
     if (entry.driver === "openai-compat" && cfg.openaiCompat && id !== OPENAI_API_INSTANCE && id !== OPENROUTER_API_INSTANCE) {
       const defaults: Record<string, string> = {};
       if (cfg.openaiCompat.url) defaults.url = cfg.openaiCompat.url;
@@ -1241,6 +1226,17 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
         entry.config = merged;
       }
     }
+  }
+  for (const entry of Object.values(map)) {
+    // A versioned /v1 endpoint under a native DeepSeek node is OpenAI's contract: ride the OpenAI chat runtime with that node's key.
+    const base = entry.environment?.DEEPSEEK_BASE_URL ?? "";
+    if (entry.driver !== "deepseekAgent" || !looksOpenAICompatible(base)) continue;
+    entry.driver = "openai-compat";
+    delete entry.environment!.DEEPSEEK_BASE_URL;
+    if (cfg.deepseek?.key) entry.environment!.OPENAI_COMPAT_API_KEY = cfg.deepseek.key;
+    const raw = entry.config;
+    const current = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+    entry.config = { ...current, url: base, ...(cfg.deepseek?.key ? { key: cfg.deepseek.key } : {}) };
   }
   return map;
 }

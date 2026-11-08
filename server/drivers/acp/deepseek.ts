@@ -8,6 +8,16 @@
 //     $DSH_HOME/.credentials.yaml), promptCapabilities.image false,
 //     sessionCapabilities {close, list, resume} — resume is session/resume,
 //     there is no session/load.
+//   - The DeepSeek adapter takes its endpoint from $DEEPSEEK_BASE_URL, an
+//     Anthropic Messages-compatible API (default https://api.deepseek.com/anthropic);
+//     the config's baseUrl reaches it that way, so OpenMausBot passes it through
+//     the launch environment. Verified in 0.2.1-rc.5.
+//   - BYOM OpenAI-compatible endpoints ride a different route: the custom
+//     OpenAI provider block (llm-pi-ai.providers) of the active profile's
+//     legacy settings.yaml, which dsh 0.2.1-rc.5 imports into the profile on
+//     launch and renames. OpenMausBot rewrites that file before every spawn
+//     (deepseek-settings.ts); its apiKeyEnv names the key's env var, never
+//     the key's value.
 //   - session/new advertises two config options: `model` (category "model",
 //     values are JSON pairs such as ["deepseek-official","deepseek-v4-flash"],
 //     grouped per provider) and `reasoning_effort` (category "thought_level":
@@ -24,15 +34,17 @@
 // stay readable; resolveTurnModel turns them into dsh's wire pair just before
 // the core selects the model.
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 
 import type { ModelCatalog } from "../../contracts.ts";
 import { harnessHome } from "../../env-path.ts";
-import { resolveCli } from "../../procs.ts";
+import { execCli, resolveCli } from "../../procs.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
+import { versionFromProbe } from "./version-probe.ts";
+import { CUSTOM_OPENAI_API_KEY_ENV, ensureCustomOpenAIProvider } from "./deepseek-settings.ts";
 
 export const DEEPSEEK_MODELS: ModelCatalog = {
   default: "deepseek-official/deepseek-v4-flash",
@@ -181,6 +193,64 @@ function catalogTimeoutMs(env: Record<string, string | undefined>): number {
   return Number.isInteger(parsed) && parsed > 0 && parsed <= 2_147_483_647 ? parsed : DEEPSEEK_MODELS_DEFAULT_TIMEOUT_MS;
 }
 
+/** The packaged app ships dsh's runtime under <resources>/dsh and runs its entry under the
+ * app's own executable as Node, the DSH desktop installer's launcher pattern
+ * (ELECTRON_RUN_AS_NODE), so a global `dsh` install is not required. Plain-node
+ * processes have no resourcesPath and keep using the CLI on PATH. Security:
+ * the bot box's environment allowlist passes ELECTRON_RUN_AS_NODE to engine
+ * spawns, so the flag survives the box boundary. */
+const DSH_BUNDLED_ENTRY = ["dsh", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"].join("/");
+
+/** The bundled dsh entry this install ships, or null (dev, plain node, or an
+ * install without the runtime). */
+export function bundledDshEntry(): string | null {
+  const resources = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  if (!resources) return null;
+  const entry = join(resources, DSH_BUNDLED_ENTRY);
+  return existsSync(entry) ? entry : null;
+}
+
+/** The launch environment a dsh child gets: dsh 0.2.1-rc.5 reads
+ * process.env.DSH_TELEMETRY_DISABLED at profile boot (any non-empty value
+ * disables OTel session telemetry), and loopback must never ride a proxy,
+ * so NO_PROXY/no_proxy are made to cover 127.0.0.1 and localhost while the
+ * operator's existing exclusion entries are kept. */
+export function dshChildEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  const child: Record<string, string | undefined> = { ...env, DSH_TELEMETRY_DISABLED: "1" };
+  for (const name of ["NO_PROXY", "no_proxy"]) {
+    const entries = (child[name] ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+    for (const loopback of ["127.0.0.1", "localhost"]) {
+      if (!entries.some((part) => part.toLowerCase() === loopback)) entries.push(loopback);
+    }
+    child[name] = entries.join(",");
+  }
+  return child;
+}
+/** One dsh invocation: the shipped runtime under the app's executable when the
+ * effective CLI is the plain `dsh` name, otherwise the CLI resolved on PATH.
+ * A user's custom CLI is never replaced. */
+export function dshLaunch(
+  cli: string,
+  env: Record<string, string | undefined>,
+  args: string[],
+): { command: string; args: string[]; env?: Record<string, string | undefined> } {
+  const launchEnv = dshChildEnv(env);
+  const entry = bundledDshEntry();
+  if (entry && cli === "dsh") {
+    return { command: process.execPath, args: [entry, ...args], env: { ...launchEnv, ELECTRON_RUN_AS_NODE: "1" } };
+  }
+  const resolved = resolveCli(cli, args, launchEnv);
+  // The CLI is a launcher when its shim sets state the exec line depends on: dsh's .cmd runs its
+  // Electron host as a CLI via `set "ELECTRON_RUN_AS_NODE=1"`, carried back as resolved.env. The
+  // batch assigns it ahead of the exec line, so the preamble wins for its own names; launchEnv
+  // (the operator's configuration) supplies everything else. Without it the host boots as its GUI
+  // and never answers its ACP stdio.
+  const launch: { command: string; args: string[]; env?: Record<string, string | undefined> } =
+    { command: resolved.command, args: resolved.args };
+  if (resolved.env) launch.env = { ...resolved.env, ...launchEnv };
+  return launch;
+}
+
 /** Ask the installed dsh what it offers: initialize, session/new in `cwd`,
  * read the catalog, session/close. Rejects on any failure so the core keeps
  * the last usable catalog; never resolves to an empty or guessed list. */
@@ -190,10 +260,11 @@ export function fetchDeepSeekCatalog(
   cwd: string,
 ): Promise<ModelCatalog> {
   return new Promise((resolve, reject) => {
+    ensureCustomOpenAIProvider(env, dshHome(env));
     let child: ReturnType<typeof spawn>;
     try {
-      const resolved = resolveCli(cli, ["--profile", "acp"], env);
-      child = spawn(resolved.command, resolved.args, { stdio: ["pipe", "pipe", "ignore"], env: env as NodeJS.ProcessEnv, windowsHide: true });
+      const launch = dshLaunch(cli, env, ["--profile", "acp"]);
+      child = spawn(launch.command, launch.args, { stdio: ["pipe", "pipe", "ignore"], env: (launch.env ?? env) as NodeJS.ProcessEnv, windowsHide: true });
     } catch (error) {
       return reject(error instanceof Error ? error : new Error(String(error)));
     }
@@ -303,7 +374,33 @@ export const deepseekSupport: AcpSupport = {
   },
 
   spawnArgs: () => ["--profile", "acp"],
-  credentialEnv: ["DEEPSEEK_API_KEY"],
+  /** The shipped runtime under the app's own executable when this install
+   * carries one, else the PATH resolution; a custom CLI override is honored
+   * as is. */
+  resolveCommand: async (env, config) => {
+    ensureCustomOpenAIProvider(env, dshHome(env));
+    return dshLaunch(config.cli, env, []);
+  },
+  /** Probe the effective dsh through the same launch contract, since a
+   * packaged runtime is not on the CLI's PATH. */
+  snapshot: async (env, config) => {
+    const launch = dshLaunch(config.cli, env, ["--version"]);
+    const probed = await new Promise<{ version?: string; reason?: string }>((done) => {
+      execCli(launch.command, launch.args, { timeout: 8_000, env: launch.env ?? env }, (error, stdout, stderr) => {
+        if (error) {
+          done({ reason: (error as NodeJS.ErrnoException).code === "ENOENT"
+            ? "No dsh runtime was found. Reinstall OpenMausBot, or install dsh on PATH."
+            : "The dsh version check failed. Run `dsh --version` in a terminal to diagnose." });
+          return;
+        }
+        const version = versionFromProbe(stdout, stderr);
+        done(version ? { version } : { reason: "dsh answered no version. Run `dsh --version` in a terminal to diagnose." });
+      });
+    });
+    if (!probed.version) return { state: "unavailable", reason: probed.reason };
+    return { state: "available", version: probed.version, authenticated: hasDeepSeekKey(env) };
+  },
+  credentialEnv: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", CUSTOM_OPENAI_API_KEY_ENV, "DSH_TELEMETRY_DISABLED"],
   // Model and reasoning effort are session config options (see header).
   selectModel: { configId: "model" },
   modelVariants: true,

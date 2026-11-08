@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-import de from "./de.json";
 import en from "./en.json";
+import zh from "./zh.json";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const SCANNED = ["server", "shared"];
@@ -539,10 +539,10 @@ describe("lines the server writes for a person", () => {
     expect(stale).toEqual([]);
   });
 
-  it("every server line has German words, and the server uses each one", () => {
+  it("every server line has Chinese words, and the server uses each one", () => {
     const keys = Object.keys(en).filter((key) => key.startsWith("server."));
     expect(keys.length).toBeGreaterThan(0);
-    expect(keys.filter((key) => !Object.hasOwn(de, key))).toEqual([]);
+    expect(keys.filter((key) => !Object.hasOwn(zh, key))).toEqual([]);
     const code = SCANNED.flatMap((top) => [...sources(join(ROOT, top))]).map((path) => readFileSync(path, "utf8")).join("\n");
     expect(keys.filter((key) => !code.includes(`"${key}"`))).toEqual([]);
   });

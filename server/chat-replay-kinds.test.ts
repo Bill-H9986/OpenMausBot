@@ -2,7 +2,7 @@
 import { createServer, type Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { GroqDriver } from "./drivers/groq.ts";
+import { OpenAICompatDriver } from "./drivers/openai-compat.ts";
 import { recordEvents } from "./testing/events.ts";
 import { buildTurnContext, engineIsFresh, replaysNatively } from "./turn-context.ts";
 
@@ -20,7 +20,7 @@ describe("chat-completions history is sent once", () => {
       if (req.url?.endsWith("/models")) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "openai/gpt-oss-120b" }] })); return; }
       let text = "";
       for await (const chunk of req) text += chunk;
-      bodies.push(JSON.parse(text) as Body);
+      if (text) bodies.push(JSON.parse(text) as Body);
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: "Noted." }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
     });
@@ -34,9 +34,9 @@ describe("chat-completions history is sent once", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("groq: the first user message is in the second request exactly once", async () => {
-    const instance = await GroqDriver.create({ instanceId: "groq-1", displayName: "Groq", enabled: true,
-      config: GroqDriver.decodeConfig({ url: base }), environment: { GROQ_API_KEY: `gsk_${"a".repeat(48)}` } });
+  it("the first user message is in the second request exactly once", async () => {
+    const instance = await OpenAICompatDriver.create({ instanceId: "groq-1", displayName: "Groq", enabled: true,
+      config: OpenAICompatDriver.decodeConfig({ url: base, key: "sk-fixture" }), environment: {} });
     const recorder = recordEvents(instance.adapter);
     try {
       const transcript = [{ role: "user" as const, text: FIRST }, { role: "assistant" as const, text: "Noted." }];

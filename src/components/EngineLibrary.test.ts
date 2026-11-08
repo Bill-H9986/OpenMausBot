@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { InstanceInfo } from "@/state/store";
 import { EngineCard, EngineSections, engineReady } from "./EngineLibrary";
-import { CursorMark, HermesMark, InstanceProviderMark } from "./ProviderIcons";
+import { CursorMark, InstanceProviderMark } from "./ProviderIcons";
 
 const instance = (overrides: Partial<InstanceInfo> = {}): InstanceInfo => ({
   instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude",
@@ -13,7 +13,7 @@ const instance = (overrides: Partial<InstanceInfo> = {}): InstanceInfo => ({
 
 describe("engine library", () => {
   it("keeps monochrome provider logos legible in light and dark skins", () => {
-    for (const Mark of [CursorMark, HermesMark]) {
+    for (const Mark of [CursorMark]) {
       const html = renderToStaticMarkup(createElement(Mark));
       expect(html).not.toContain("#F5F5F5");
       expect(html).toContain("ink");

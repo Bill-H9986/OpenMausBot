@@ -11,7 +11,7 @@ import { freePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
-const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
+const FAKE_ACP = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
 
 let child: ChildProcess;
 let home = "";
@@ -37,10 +37,10 @@ const api = async (method: string, path: string, body?: unknown): Promise<{ stat
 };
 
 const fixture = (displayName: string, environment: Record<string, string>) => ({
-  driver: "claudeAgent",
+  driver: "deepseekAgent",
   displayName,
   environment,
-  config: { cli: FAKE_CLAUDE },
+  config: { cli: FAKE_ACP },
 });
 
 beforeAll(async () => {
@@ -51,20 +51,27 @@ beforeAll(async () => {
   mkdirSync(join(staticDir, "assets"), { recursive: true });
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Goal wait cap test</title>");
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body{}");
+  // The static dsh catalog names wire ids the fake does not offer, so seed the startup model cache the way a finished
+  // read would have (as boot-readiness.e2e.test.ts does).
+  mkdirSync(join(data, "providers", "engine-models"), { recursive: true });
+  for (const instanceId of ["reassignLead", "hang", "helper", "crash"]) {
+    writeFileSync(join(data, "providers", "engine-models", `${instanceId}.json`),
+      JSON.stringify({ default: "fake-model", options: [{ id: "fake-model", label: "Fake model" }] }));
+  }
   writeFileSync(join(data, "config.json"), JSON.stringify({
     instances: {
       reassignLead: fixture("Reassigning lead", {
-        FAKE_CLAUDE_MODE: "happy",
-        FAKE_CLAUDE_REPLIES: JSON.stringify(reassignLeadReplies),
-        FAKE_CLAUDE_REPLY_STATE: join(home, "reassign-lead-replies.txt"),
+        FAKE_ACP_MODELS: "fake-model",
+        FAKE_ACP_REPLIES: JSON.stringify(reassignLeadReplies),
+        FAKE_ACP_REPLY_STATE: join(home, "reassign-lead-replies.txt"),
       }),
-      hang: fixture("Hanging teammate", { FAKE_CLAUDE_MODE: "hang" }),
+      hang: fixture("Hanging teammate", { FAKE_ACP_MODELS: "fake-model", FAKE_ACP_MODE: "hang" }),
       helper: fixture("Helper", {
-        FAKE_CLAUDE_MODE: "happy",
-        FAKE_CLAUDE_REPLIES: JSON.stringify(["Here is the summary draft."]),
-        FAKE_CLAUDE_REPLY_STATE: join(home, "helper-replies.txt"),
+        FAKE_ACP_MODELS: "fake-model",
+        FAKE_ACP_REPLIES: JSON.stringify(["Here is the summary draft."]),
+        FAKE_ACP_REPLY_STATE: join(home, "helper-replies.txt"),
       }),
-      crash: fixture("Crashing lead", { FAKE_CLAUDE_MODE: "exit-early" }),
+      crash: fixture("Crashing lead", { FAKE_ACP_MODELS: "fake-model", FAKE_ACP_MODE: "exit-early" }),
     },
   }));
   const port = await freePortBlock([0, 1]);
@@ -103,12 +110,14 @@ afterAll(async () => {
   if (home) await removeTempDir(home);
 });
 
-const createBot = async (name: string, instanceId: string) =>
-  (await api("POST", "/api/bots", {
+const createBot = async (name: string, instanceId: string) => {
+  const created = await api("POST", "/api/bots", {
     name,
-    modelSelection: { instanceId, model: "claude-sonnet-5" },
+    modelSelection: { instanceId, model: "fake-model" },
     requireAvailableModel: true,
-  })).body.bot;
+  });
+  return created.body.bot;
+};
 
 const createRoom = async (name: string, leadId: string, memberIds: string[]) =>
   (await api("POST", "/api/groups", {

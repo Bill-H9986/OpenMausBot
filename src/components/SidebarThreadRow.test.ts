@@ -301,9 +301,9 @@ describe("threadUpdatedLabel", () => {
   });
 
   it("translates through the locale catalog", () => {
-    setLocale("pt-br");
-    expect(threadUpdatedLabel(now - 5 * 60_000, now)).toBe("há 5 min");
-    expect(threadUpdatedLabel(now - 26 * 3_600_000, now)).toBe("ontem");
+    setLocale("zh");
+    expect(threadUpdatedLabel(now - 5 * 60_000, now)).toBe("5 分钟前");
+    expect(threadUpdatedLabel(now - 26 * 3_600_000, now)).toBe("昨天");
   });
 });
 

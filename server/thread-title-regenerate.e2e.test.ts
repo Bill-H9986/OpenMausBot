@@ -13,7 +13,6 @@ import { freePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
-const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
 
 let child: ChildProcess;
 let home = "";
@@ -47,12 +46,66 @@ beforeAll(async () => {
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body{}");
   titleFile = join(home, "title.txt");
   titleDump = join(home, "title-dump.json");
+  // The static dsh catalog names ids the fake does not offer, so seed the startup model cache.
+  mkdirSync(join(data, "providers", "engine-models"), { recursive: true });
+  writeFileSync(join(data, "providers", "engine-models", "titled.json"),
+    JSON.stringify({ default: "fake-model", options: [{ id: "fake-model", label: "Fake model" }] }));
+  // Turns answer with a fixed line; a title one-shot reads its answer from the file the test rewrites, and fails at
+  // once (as the old fake did for a missing file) when the file holds __FAIL__. Env knobs are read per prompt, so the
+  // wrapper can pick one or the other as each prompt reaches the fake.
+  const failureFile = join(home, "title-failure.json");
+  const wrapper = join(home, "titled-cli.mjs");
+  writeFileSync(wrapper, [
+    "#!/usr/bin/env node",
+    'import { existsSync, readFileSync, writeFileSync } from "node:fs";',
+    'import { PassThrough } from "node:stream";',
+    `const titleFile = ${JSON.stringify(titleFile)};`,
+    `const failureFile = ${JSON.stringify(failureFile)};`,
+    `process.env.FAKE_ACP_DUMP = ${JSON.stringify(titleDump)};`,
+    'process.env.FAKE_ACP_DUMP_PROMPT = "1";',
+    'process.env.FAKE_ACP_MODELS = "fake-model";',
+    'process.env.FAKE_ACP_TEXT_REPLY = "hello from fake claude";',
+    "const relay = new PassThrough();",
+    "const real = process.stdin;",
+    'Object.defineProperty(process, "stdin", { value: relay, configurable: true });',
+    'let buffered = "";',
+    'real.on("data", (chunk) => {',
+    "  buffered += chunk;",
+    "  let nl;",
+    '  while ((nl = buffered.indexOf("\\n")) !== -1) {',
+    "    const line = buffered.slice(0, nl);",
+    "    buffered = buffered.slice(nl + 1);",
+    "    let msg;",
+    '    try { msg = JSON.parse(line); } catch { relay.write(line + "\\n"); continue; }',
+    '    if (msg?.method === "session/prompt") {',
+    '      const text = (msg.params?.prompt ?? []).map((block) => String(block?.text ?? "")).join("");',
+    '      if (text.startsWith("Name the conversation")) {',
+    '        let answer = "__FAIL__";',
+    "        try { answer = readFileSync(titleFile, \"utf8\"); } catch {}",
+    '        if (answer.trim() === "__FAIL__") {',
+    '          writeFileSync(failureFile, JSON.stringify({ code: -32603, message: "fake title generation failed" }));',
+    "          process.env.FAKE_ACP_RPC_FAILURE_FILE = failureFile;",
+    "          delete process.env.FAKE_ACP_REPLY_FILE;",
+    "        } else {",
+    "          process.env.FAKE_ACP_REPLY_FILE = titleFile;",
+    "          delete process.env.FAKE_ACP_RPC_FAILURE_FILE;",
+    "        }",
+    "      } else {",
+    "        delete process.env.FAKE_ACP_REPLY_FILE;",
+    "      }",
+    "    }",
+    '    relay.write(line + "\\n");',
+    "  }",
+    "});",
+    'real.on("end", () => relay.end());',
+    `await import(${JSON.stringify(new URL("./testing/fake-acp-cli.ts", import.meta.url).href)});`,
+  ].join("\n"), { mode: 0o700 });
   writeFileSync(join(data, "config.json"), JSON.stringify({
     features: { llmThreadTitles: true },
     instances: {
       titled: {
-        driver: "claudeAgent", displayName: "Titled fixture", config: { cli: FAKE_CLAUDE },
-        environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_TEXT_DUMP: titleDump, FAKE_CLAUDE_TEXT_FILE: titleFile },
+        driver: "deepseekAgent", displayName: "Titled fixture", config: { cli: wrapper },
+        environment: { FAKE_ACP_MODELS: "fake-model" },
       },
     },
   }));
@@ -100,7 +153,7 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
 
   it("names a renamed thread from its recent conversation, without tool output", async () => {
     const bot = (await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "titled", model: "claude-sonnet-5" }, requireAvailableModel: true,
+      modelSelection: { instanceId: "titled", model: "fake-model" }, requireAvailableModel: true,
     })).body.bot;
     botId = bot.id;
     // background memory capture is a one-shot too; keep it off this dump
@@ -124,10 +177,11 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
     expect(regenerated.body.task.title).toBe("Session expiry login hang");
     expect(await taskTitle(botId, threadId)).toBe("Session expiry login hang");
 
-    const seen = JSON.parse(readFileSync(titleDump, "utf8"));
-    expect(seen.prompt).toContain("Conversation:\n");
-    expect(seen.prompt).toContain("User: every login hangs after the session expires\nBot: hello from fake claude");
-    expect(seen.prompt).not.toContain("echo hi");
+    const seen = (JSON.parse(readFileSync(`${titleDump}.prompt.json`, "utf8")) as Array<{ text?: string }>)
+      .map((block) => String(block.text ?? "")).join("");
+    expect(seen).toContain("Conversation:\n");
+    expect(seen).toContain("User: every login hangs after the session expires\nBot: hello from fake claude");
+    expect(seen).not.toContain("echo hi");
   });
 
   it("keeps the current title and says so when the one-shot fails or answers something unusable", async () => {

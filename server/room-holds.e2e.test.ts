@@ -11,7 +11,7 @@ import { freePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
-const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
+const FAKE_ACP = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
 const HELD = (name: string) => `${name} is held (stopped by you) — @mention it or say resume`;
 
 let child: ChildProcess;
@@ -41,10 +41,10 @@ const api = async (method: string, path: string, body?: unknown): Promise<{ stat
 };
 
 const fixture = (displayName: string, environment: Record<string, string>) => ({
-  driver: "claudeAgent",
+  driver: "deepseekAgent",
   displayName,
-  environment,
-  config: { cli: FAKE_CLAUDE },
+  environment: { FAKE_ACP_MODELS: "fake-model", ...environment },
+  config: { cli: FAKE_ACP },
 });
 
 beforeAll(async () => {
@@ -52,26 +52,37 @@ beforeAll(async () => {
   data = join(home, ".openmausbot");
   const staticDir = join(home, "static");
   mkdirSync(data, { recursive: true });
+  // The static dsh catalog names wire ids the fake does not offer, so seed the startup model cache the way a finished read would.
+  mkdirSync(join(data, "providers", "engine-models"), { recursive: true });
+  for (const instanceId of ["patient", "quick", "narrator", "passer"]) {
+    writeFileSync(join(data, "providers", "engine-models", `${instanceId}.json`),
+      JSON.stringify({ default: "fake-model", options: [{ id: "fake-model", label: "Fake model" }] }));
+  }
   mkdirSync(join(staticDir, "assets"), { recursive: true });
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Room holds test</title>");
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body{}");
   slowGate = join(home, "slow-finish");
+  // A tool frame between the two texts makes each its own chat message, as a working note followed by the reply.
+  const narratorUpdates = join(home, "narrator-updates.json");
+  writeFileSync(narratorUpdates, JSON.stringify([
+    { update: { sessionUpdate: "tool_call", toolCallId: "tc-note", title: "note", kind: "other", rawInput: {} } },
+    { update: { sessionUpdate: "tool_call_update", toolCallId: "tc-note", status: "completed", rawOutput: { output: "ok" } } },
+    { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "All done here." } } },
+  ]));
   writeFileSync(join(data, "config.json"), JSON.stringify({
     instances: {
       // Holds its turn open until the gate file exists; its closing reply echoes the prompt it was given.
-      patient: fixture("Patient fixture", { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: slowGate }),
-      quick: fixture("Quick fixture", { FAKE_CLAUDE_MODE: "happy" }),
+      patient: fixture("Patient fixture", { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: slowGate }),
+      quick: fixture("Quick fixture", {}),
       // a working note that names a teammate, then the actual answer
       narrator: fixture("Narrating fixture", {
-        FAKE_CLAUDE_MODE: "happy",
-        FAKE_CLAUDE_REPLIES: JSON.stringify([["Let me check with @Ann later.", "All done here."]]),
-        FAKE_CLAUDE_REPLY_STATE: join(home, "narrator-replies.txt"),
+        FAKE_ACP_REPLIES: JSON.stringify(["Let me check with @Ann later."]),
+        FAKE_ACP_UPDATES_FILE: narratorUpdates,
       }),
       // a turn that ends on "(pass)", then the re-ask's answer
       passer: fixture("Passing fixture", {
-        FAKE_CLAUDE_MODE: "happy",
-        FAKE_CLAUDE_REPLIES: JSON.stringify(["(pass)", "Result: the title is fixed."]),
-        FAKE_CLAUDE_REPLY_STATE: join(home, "passer-replies.txt"),
+        FAKE_ACP_REPLIES: JSON.stringify(["(pass)", "Result: the title is fixed."]),
+        FAKE_ACP_REPLY_STATE: join(home, "passer-replies.txt"),
       }),
     },
   }));
@@ -108,12 +119,15 @@ afterAll(async () => {
   if (home) await removeTempDir(home);
 });
 
-const createBot = async (name: string, instanceId: string) =>
-  (await api("POST", "/api/bots", {
+const createBot = async (name: string, instanceId: string) => {
+  const created = await api("POST", "/api/bots", {
     name,
-    modelSelection: { instanceId, model: "claude-sonnet-5" },
+    modelSelection: { instanceId, model: "fake-model" },
     requireAvailableModel: true,
-  })).body.bot;
+  });
+  expect(created.status, JSON.stringify(created.body)).toBe(201);
+  return created.body.bot;
+};
 
 const createRoom = async (name: string, memberIds: string[], defaultResponder: unknown) =>
   (await api("POST", "/api/groups", { name, memberIds, setup: { bulletin: "", defaultResponder } })).body.group;

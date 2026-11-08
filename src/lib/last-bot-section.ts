@@ -5,19 +5,12 @@ export const LAST_BOT_SECTION_KEY = "openmausbot.lastBotSection.v1";
 export const BOT_SETTINGS_SECTION_IDS: readonly BotSettingsSection[] = [
   "overview",
   "identity",
-  "slack",
   "soul",
   "skills",
   "memory",
-  "library",
   "routines",
   "access",
   "model",
-  "permissions",
-  "voice",
-  "visibility",
-  "history",
-  "usage",
 ];
 
 export function readLastBotSection(): BotSettingsSection | null {

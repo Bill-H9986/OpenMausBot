@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { setLocale } from "@/lib/i18n";
-import { en, locales } from "@/locales";
+import { en, loadLocalePack, locales } from "@/locales";
 import { StoreProvider } from "@/state/store";
 
 // No DOM here: the screen only asks whether the desktop bridge is there, so an empty window answers as a browser tab
@@ -35,28 +35,28 @@ afterEach(() => {
 
 describe("Settings → General", () => {
   it("renders in the language the picker selected, and re-renders in the next one", async () => {
-    setLocale("pt-br");
-    const pt = await renderSettings();
-    expect(pt).toContain("Configurações");
-    expect(pt).toContain("Provedores de modelos");
-    expect(pt).toContain("Idioma do app");
-    expect(pt).toContain("Parar sem progresso após");
+    await loadLocalePack("zh");
+    setLocale("en");
+    const first = await renderSettings();
+    expect(first).toContain("General");
+    expect(first).toContain("Model providers");
+    expect(first).toContain("App language");
+    expect(first).toContain("Stop after no progress for");
 
-    // Same module instance, no reload: a frozen label would still say "Provedores de modelos" here.
-    setLocale("ja");
-    const ja = await renderSettings();
-    expect(ja).toContain("設定");
-    expect(ja).toContain("モデルプロバイダー");
+    // Same module instance, no reload: a frozen label would still say the English section name here.
+    setLocale("zh");
+    const second = await renderSettings();
+    expect(second).toContain("设置");
+    expect(second).toContain("模型提供方");
     for (const key of [
       "settings.group.you", "settings.group.computers", "settings.group.account",
       "settings.section.appearance", "settings.section.backups", "settings.section.people",
-      "settings.advancedMode.title",
     ] as const) {
-      expect(locales.ja[key], key).toBeTruthy();
-      expect(locales.ja[key], key).not.toBe(en[key]);
-      expect(ja, key).toContain(locales.ja[key]!);
+      expect(locales.zh[key], key).toBeTruthy();
+      expect(locales.zh[key], key).not.toBe(en[key]);
+      expect(second, key).toContain(locales.zh[key]!);
     }
-    expect(ja).not.toContain("Provedores de modelos");
+    expect(second).not.toContain("Model providers");
   });
 
   it("stays English when no language is picked", async () => {

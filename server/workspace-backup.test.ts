@@ -34,6 +34,18 @@ const RUNTIME_LIVE_ROW: Assignment = {
 delete (RUNTIME_LIVE_ROW as { outcome?: unknown }).outcome;
 delete (RUNTIME_LIVE_ROW as { finishedAt?: unknown }).finishedAt;
 delete (RUNTIME_LIVE_ROW as { question?: unknown }).question;
+const canSymlink = (() => {
+  const probe = mkdtempSync(join(tmpdir(), "omb-symlink-probe-"));
+  try {
+    writeFileSync(join(probe, "a"), "a");
+    symlinkSync(join(probe, "a"), join(probe, "b"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
 const scratch: string[] = [];
 function directory(): string {
   const path = mkdtempSync(join(tmpdir(), "omb-workspace-backup-"));
@@ -643,7 +655,7 @@ describe("encrypted full workspace backups", () => {
     expect(readdirSync(join(root, ".backups"))).toEqual([]);
   });
 
-  it("refuses external and arbitrary internal symlinks while reporting omitted managed discovery links", async () => {
+  it.skipIf(!canSymlink)("refuses external and arbitrary internal symlinks while reporting omitted managed discovery links", async () => {
     const root = directory();
     const outside = directory();
     writeFileSync(join(outside, "secret"), "must never be read");
@@ -664,7 +676,7 @@ describe("encrypted full workspace backups", () => {
     expect(exported.summary.warnings.some((warning) => warning.includes("1 managed skill"))).toBe(true);
   });
 
-  it("saves links inside one workspace as copies of what they point to, and refuses loops and links to other workspaces", async () => {
+  it.skipIf(!canSymlink)("saves links inside one workspace as copies of what they point to, and refuses loops and links to other workspaces", async () => {
     const root = directory();
     const project = join(root, "workspaces", "ws", "project");
     mkdirSync(join(project, ".agents", "skills", "review"), { recursive: true });
@@ -690,7 +702,7 @@ describe("encrypted full workspace backups", () => {
     await expect(createWorkspaceBackup(root, { password: PASSWORD })).rejects.toThrow(/user-created symbolic link/);
   });
 
-  it("leaves out node_modules and links in conversation work folders, and says so", async () => {
+  it.skipIf(!canSymlink)("leaves out node_modules and links in conversation work folders, and says so", async () => {
     const root = directory();
     const outside = directory();
     writeFileSync(join(outside, "secret"), "must never be read");

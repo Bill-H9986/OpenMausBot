@@ -16,7 +16,7 @@ let PORT: number;
 const HOST = "acme.example.test";
 const EMAIL = "member@example.test";
 const INSTANCES = { fixture: { driver: "hosted-access-test-shadow" }, claude: {
-  driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
+  driver: "deepseekAgent", config: { cli: join(ROOT, "server/testing/fake-acp-cli.ts") }, environment: { FAKE_ACP_MODELS: "fake-model" },
 } };
 let home: string;
 let stateFile: string;
@@ -46,7 +46,7 @@ async function policyBot() {
   if (policyBotId) return policyBotId;
   const catalog = await call("/api/instances", { local: true });
   const provider = catalog.body.instances.find((instance: any) => instance.instanceId === "claude");
-  expect(provider.driverKind).toBe("claudeAgent");
+  expect(provider.driverKind).toBe("deepseekAgent");
   expect(provider.snapshot.state).not.toBe("unavailable");
   expect(provider.cli).toBe(INSTANCES.claude.config.cli);
   const created = await call("/api/bots", { method: "POST", local: true, body: {
@@ -97,6 +97,10 @@ beforeAll(async () => {
   stateFile = join(home, "portal-fixture.json"); state();
   const data = join(home, ".openmausbot");
   const layer = join(home, "enterprise");
+  // The static dsh catalog names wire ids the fake does not offer, so seed the startup model cache the way a finished read would.
+  mkdirSync(join(data, "providers", "engine-models"), { recursive: true });
+  writeFileSync(join(data, "providers", "engine-models", "claude.json"),
+    JSON.stringify({ default: "fake-model", options: [{ id: "fake-model", label: "Fake model" }] }));
   mkdirSync(join(layer, "server"), { recursive: true });
   mkdirSync(join(home, "static"));
   writeFileSync(join(home, "static", "index.html"), "<!doctype html><title>Fixture workspace</title>");

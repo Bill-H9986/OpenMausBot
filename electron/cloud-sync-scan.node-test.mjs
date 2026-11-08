@@ -5,6 +5,18 @@ import { join } from "node:path";
 import test from "node:test";
 import { caseInsensitive, scanPc, sha256File, watchFolder } from "./cloud-sync-scan.mjs";
 
+const canSymlink = (() => {
+  const probe = mkdtempSync(join(tmpdir(), "omb-symlink-probe-"));
+  try {
+    symlinkSync(join(probe, "target"), join(probe, "link"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
+
 const LATER = () => Date.now() + 60_000;
 function folder(t) {
   const dir = mkdtempSync(join(tmpdir(), "omb-sync-scan-"));
@@ -12,7 +24,7 @@ function folder(t) {
   return dir;
 }
 
-test("lists files as wire paths with hashes, keeping links and hard links as present, skipping litter and sync's own downloads", async (t) => {
+test("lists files as wire paths with hashes, keeping links and hard links as present, skipping litter and sync's own downloads", { skip: canSymlink ? false : "symlinks need a privilege this host lacks" }, async (t) => {
   const dir = folder(t);
   mkdirSync(join(dir, "sub"));
   writeFileSync(join(dir, "sub", "a.txt"), "one");

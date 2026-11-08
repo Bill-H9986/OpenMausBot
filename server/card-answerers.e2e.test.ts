@@ -113,7 +113,7 @@ posixOnly("who may answer a card on a shared workspace", () => {
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, "config.json"), JSON.stringify({
       signIn: { admins: [BOSS], members: [ADA, BOB] },
-      instances: { grok: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "permission" }, config: { cli: FAKE_CLI, fullAuto: false } } },
+      instances: { grok: { driver: "deepseekAgent", environment: { FAKE_ACP_MODE: "permission", FAKE_ACP_MODELS: "fake-model" }, config: { cli: FAKE_CLI, fullAuto: false } } },
     }));
     const role = (email: string) => (email === BOSS ? ["admin", "client"] as const : ["client"] as const);
     const registry = new SessionRegistry({ file: join(data, "sessions.json"), emailScopes: (email) => [...role(email)] });

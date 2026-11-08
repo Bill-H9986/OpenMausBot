@@ -33603,7 +33603,6 @@
       "settings.simple.analyticsLink": "d2be4fbfc89cd0e64dab2a576ea32b9c241329692a11b57768f123e737773ec4",
       "settings.simple.diagnostics": "94ce6930374ab6b5a47682a264f930e8b3ee67cfe55665f32c1fde54776a7f14",
       "settings.simple.ai.yours": "646042589eb64c9a768d01e27217c4c432390a97aa404c0729a9bced2417239b",
-      "settings.simple.ai.more": "1499007179f8a3a52086f778623c0e1bacd034f6e00257b27c8c100a8eca599f",
       "settings.simple.ai.manage": "5a23444828db654a0eaef5f81aabe79432871f43f73ea888279b3ee212f98a7b",
       "settings.simple.ai.setUp": "4da10f1fbb17cac25e9e78536d4104cb4b2fbbc436dbc37dee5450f22c2accda",
       "settings.simple.billing.summary": "353c0b53087e9ae4dfb0813c1bd030abfb4af51930f8923a06a529efc45d5ed7",
@@ -34427,7 +34426,16 @@
       "server.browser.stoppedWaiting": "0c6d8041de6e6077f9be0ddaddeebe4457e29a1231de7aa6a8b9288704e5ccb2",
       "composer.queued.capacityStarter": "b04ed386a880964a1438f12746471df1a3f2dd4894ca97dcb3fbd22b1834da88",
       "composer.queued.seePlans": "d989893356eeff0f22804648f79ee465c509800917fe8d64ec31ab5aa6557220",
-      "settings.threads.starter": "8837e4531b35bb772dcbdd6067cf3a494bca815a6620e7319bd01d9af0e1574f"
+      "settings.threads.starter": "8837e4531b35bb772dcbdd6067cf3a494bca815a6620e7319bd01d9af0e1574f",
+      "keys.deepseek.baseUrl": "5226e593cc0b182274fd691780f14e46bcd300f7f6c8631291859cac098b875b",
+      "keys.deepseek.baseUrlHint": "f519a48d440f7ddfd1603bbc1412f0d07f372d35bce105249fe823e240e4f28b",
+      "keys.customOpenAI.label": "7eab6c328d7fa5bc45385252e5ebf042698b4e4f903a2930261fca56c9ad11da",
+      "keys.customOpenAI.baseUrl": "2578179d177903e11cb62888319a525cb0885cbdc0a4773df4c0c7f01456518d",
+      "keys.customOpenAI.baseUrlHint": "e9a60ef38ab5ae9d39896f6e057f774f4e9f8f1841d55f029dc439ef0ff2b018",
+      "keys.customOpenAI.apiKey": "16f0ee47f993d6270c9059450473eea493ca8ae037f8877782ae2bc176f24d18",
+      "keys.customOpenAI.models": "045734cf7a6d2e9b954c589419867e5c384fc199b7db36ef2dd2b969c6f242b7",
+      "keys.customOpenAI.modelsHint": "e6d174c2933635293f5856e33b42a45d547bfaf55e546918e0b74b2c70000b99",
+      "keys.purpose.customOpenAI": "582fcc88b94964be50bdcae0561d879f4da553f14ba76ff853ca03b84cfa5697"
     },
     "zh-tw": {
       "whop.description": "1a07cf04ef17029448d3781415cbac16d54e66b821907a40d94e0e6349710e70",
@@ -77975,7 +77983,6 @@
       "settings.simple.analyticsLink": "d2be4fbfc89cd0e64dab2a576ea32b9c241329692a11b57768f123e737773ec4",
       "settings.simple.diagnostics": "94ce6930374ab6b5a47682a264f930e8b3ee67cfe55665f32c1fde54776a7f14",
       "settings.simple.ai.yours": "646042589eb64c9a768d01e27217c4c432390a97aa404c0729a9bced2417239b",
-      "settings.simple.ai.more": "1499007179f8a3a52086f778623c0e1bacd034f6e00257b27c8c100a8eca599f",
       "settings.simple.ai.manage": "5a23444828db654a0eaef5f81aabe79432871f43f73ea888279b3ee212f98a7b",
       "settings.simple.ai.setUp": "4da10f1fbb17cac25e9e78536d4104cb4b2fbbc436dbc37dee5450f22c2accda",
       "settings.simple.billing.summary": "353c0b53087e9ae4dfb0813c1bd030abfb4af51930f8923a06a529efc45d5ed7",

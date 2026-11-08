@@ -16,13 +16,13 @@ vi.mock("@/state/store", async (importOriginal) => ({
     refreshInstances: vi.fn(),
   }),
 }));
-vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => false, setAdvancedMode: vi.fn() }));
+vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => true, setAdvancedMode: vi.fn() }));
 vi.mock("@/lib/analytics", () => ({ analyticsEnabled: () => false, setAnalyticsEnabled: vi.fn() }));
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => null }));
 vi.mock("./DesktopCapabilities", () => ({ useDesktopCapabilities: () => ({ capabilities: { host: {} } }) }));
 vi.mock("./SidebarProfileMenu", async (importOriginal) => ({ ...await importOriginal<typeof import("./SidebarProfileMenu")>(), useServerUpdateItem: () => null }));
 for (const [path, name] of [
-  ["./EnginesSettings", "EnginesSettings"], ["./RemoteComputerSection", "RemoteComputerSection"], ["./CompanionSection", "CompanionSection"],
+  ["./EnginesSettings", "EnginesSettings"], ["./CompanionSection", "CompanionSection"],
   ["./ServerPairingCard", "ServerPairingCard"], ["./LocalComputerSection", "LocalComputerSection"], ["./CloudAccountSettings", "CloudAccountSettings"],
   ["./PeopleSection", "PeopleSection"], ["./ActivitySection", "ActivitySection"], ["./UsageSection", "UsageSection"], ["./ImportSettings", "ImportSettings"],
   ["./CustomDomainSettings", "CustomDomainSettings"], ["./LoginsSettings", "LoginsSettings"], ["./PlanUsage", "PlanUsageSummary"],
@@ -30,7 +30,6 @@ for (const [path, name] of [
 
 let host: HTMLDivElement;
 let root: Root;
-const scrolled = fixture.scrolled;
 
 beforeAll(() => {
   HTMLElement.prototype.checkVisibility ??= () => true;
@@ -39,7 +38,7 @@ beforeAll(() => {
 beforeEach(async () => {
   vi.clearAllMocks();
   setLocale("en");
-  scrolled.length = 0;
+  fixture.scrolled.length = 0;
   vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
   host = document.createElement("div");
   document.body.append(host);
@@ -54,28 +53,32 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const dialog = () => host.querySelector<HTMLElement>('[role="dialog"]')!;
 const search = () => host.querySelector<HTMLInputElement>("[data-settings-search]")!;
 const type = (value: string) => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search(), value);
   flushSync(() => search().dispatchEvent(new Event("input", { bubbles: true })));
 };
 
-describe("Settings search in Simple mode", () => {
-  it("opens on the dialog itself, and a typed letter moves into search", () => {
-    expect(document.activeElement).toBe(dialog());
-    flushSync(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true })));
+describe("Settings search on the single settings page", () => {
+  it("opens with the search field focused", () => {
     expect(document.activeElement).toBe(search());
-    expect(search().value).toBe("f");
   });
 
-  it("lists a builder control as Advanced and, when chosen, opens General at the Advanced mode row", () => {
-    type("font");
-    const result = host.querySelector<HTMLButtonElement>('[data-settings-advanced-only="settings.font.title"]')!;
-    expect(result.textContent).toBe("Interface font · Advanced");
-    flushSync(() => result.click());
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
-    expect(scrolled.map((element) => element.getAttribute("data-settings-block"))).toContain("advanced-mode");
+  it("narrowing the query hides sections that no longer match", () => {
+    expect(host.querySelector('[data-settings-section="engines"]')).toBeNull();
+    type("engines");
+    expect(host.querySelector('[data-settings-section="engines"]')).not.toBeNull();
+    expect(host.querySelector('[data-settings-section="appearance"]')).toBeNull();
+    type("");
+    expect(host.querySelector('[data-settings-section="appearance"]')).not.toBeNull();
+  });
+
+  it("lists matching keys and jumps to their row on click", () => {
+    type("fish");
+    const found = host.querySelector<HTMLButtonElement>('[data-settings-key-result="fishAudio"]')!;
+    expect(found.textContent).toContain("Fish Audio API key");
+    flushSync(() => found.click());
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "connections" });
     expect(search().value).toBe("");
   });
 });

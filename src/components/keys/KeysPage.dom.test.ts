@@ -89,7 +89,7 @@ describe("the keys page", () => {
     expect(section("ai").textContent).toContain("AI providers");
     expect(expanded("ai")).toBe("true");
     expect(expanded("voice")).toBe("false");
-    expect(rowsShown()).toContain("openai");
+    expect(rowsShown()).toContain("deepseek");
     expect(rowsShown()).not.toContain("elevenlabs");
   });
 
@@ -124,7 +124,7 @@ describe("the keys page", () => {
     await vi.waitFor(() => expect(document.activeElement).toBe(live()));
     expect(expanded("voice")).toBe("true");
     expect(row("liveCalls")!.hasAttribute("data-key-highlight")).toBe(true);
-    expect(live().getAttribute("aria-label")).toBe("OpenAI API key");
+    expect(live().getAttribute("aria-label")).toBe("Separate key for live calls");
     expect(row("liveCalls")!.textContent).toContain("Live calls use the same key as OpenAI's models");
   });
 
@@ -138,26 +138,26 @@ describe("the keys page", () => {
 
   it("warns, and saves nothing, when a pasted key looks like another provider's", () => {
     page();
-    const input = row("openai")!.querySelector<HTMLInputElement>("[data-key-input]")!;
-    paste(input, "  sk-ant-api03-abcdefghijklmnop\n");
-    expect(row("openai")!.textContent).toContain("That looks like the Anthropic API key, not this one.");
-    expect(input.value).toBe("sk-ant-api03-abcdefghijklmnop");
+    const input = row("box")!.querySelector<HTMLInputElement>("[data-key-input]")!;
+    paste(input, "  ak_ab12\n");
+    expect(row("box")!.textContent).toContain("That looks like the Composio project key, not this one.");
+    expect(input.value).toBe("ak_ab12");
     expect(fx.api).not.toHaveBeenCalled();
   });
 
   it("saves a pasted key, reads it back masked with a check, and keeps it in view when a later check rejects it", async () => {
     fx.api.mockImplementation(async (path: string) => path === "/api/config"
-      ? { ...fx.config, openai: { configured: true, last4: "a1b2" } }
+      ? { ...fx.config, treg: { configured: true, last4: "a1b2" } }
       : { ok: false, reason: "rejected" });
     page();
-    paste(row("openai")!.querySelector<HTMLInputElement>("[data-key-input]")!, "sk-proj-abcdefghijklmnopa1b2");
-    await vi.waitFor(() => expect(row("openai")!.textContent).toContain("Didn't work: The provider rejected this key."));
+    paste(row("treg")!.querySelector<HTMLInputElement>("[data-key-input]")!, "treg-fixture-key-1");
+    await vi.waitFor(() => expect(row("treg")!.textContent).toContain("Didn't work: The provider rejected this key."));
     expect(fx.api.mock.calls.map(([path]) => path)).toEqual(["/api/config", "/api/keys/test"]);
-    expect(JSON.parse(fx.api.mock.calls[0]![1].body)).toEqual({ openai: { key: "sk-proj-abcdefghijklmnopa1b2" } });
-    const masked = row("openai")!.querySelector("[data-key-masked]")!;
+    expect(JSON.parse(fx.api.mock.calls[0]![1].body)).toEqual({ treg: { key: "treg-fixture-key-1" } });
+    const masked = row("treg")!.querySelector("[data-key-masked]")!;
     expect(masked.textContent).toContain("••••••••a1b2");
-    expect(row("openai")!.querySelector("[data-key-input]")).toBeNull();
-    expect(row("openai")!.querySelector("[data-key-replace]")).not.toBeNull();
+    expect(row("treg")!.querySelector("[data-key-input]")).toBeNull();
+    expect(row("treg")!.querySelector("[data-key-replace]")).not.toBeNull();
   });
 
   it("confirms a key the server checked on save as Connected", async () => {

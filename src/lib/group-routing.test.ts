@@ -114,16 +114,13 @@ describe("composer hint, in the reader's language", () => {
     const room = (defaultResponder: GroupDefaultResponder) =>
       ({ defaultResponder, dm: false }) as Parameters<typeof groupComposerHint>[0];
 
-    setLocale("pt-br");
-    expect(groupComposerHint(room({ kind: "everyone" }), members)).toBe("todos respondem");
-    expect(groupComposerHint(room({ kind: "mentions" }), members)).toBe("@ para chamar um bot");
+    setLocale("zh");
+    expect(groupComposerHint(room({ kind: "everyone" }), members)).toBe("所有人都会回复");
+    expect(groupComposerHint(room({ kind: "mentions" }), members)).toBe("用 @ 叫机器人加入");
     // Select the non-first member so fallback routing cannot satisfy the assertion.
-    expect(groupComposerHint(room({ kind: "member", botId: "lead" }), members)).toBe("Atlas responde");
+    expect(groupComposerHint(room({ kind: "member", botId: "lead" }), members)).toBe("Atlas 会回复");
     expect(groupComposerHint({ dm: true } as Parameters<typeof groupComposerHint>[0], members)).toBe(
-      "continuar a conversa",
+      "继续对话",
     );
-
-    setLocale("ja");
-    expect(groupComposerHint(room({ kind: "everyone" }), members)).toBe("全員が応答します");
   });
 });

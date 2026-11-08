@@ -23,6 +23,11 @@ const livenessEveryMs = () => {
   const value = Number(process.env.OPENMAUS_OPENAI_COMPAT_PROBE_MS);
   return Number.isSafeInteger(value) && value >= 100 ? value : LIVENESS_EVERY_MS;
 };
+/** True when the endpoint speaks OpenAI's versioned /v1 contract, not DeepSeek's Anthropic-adapter base. */
+export function looksOpenAICompatible(url: string): boolean {
+  try { return /\/v\d+\/?$/.test(new URL(url).pathname); } catch { return false; }
+}
+
 /** Ollama, LM Studio or llama.cpp on this machine or a home or office network: asking it for its models is free. */
 export function onThisNetwork(url: string): boolean {
   let host: string;

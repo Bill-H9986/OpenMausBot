@@ -107,11 +107,11 @@ describe("dayLabel", () => {
   it("follows the app language when it changes", () => {
     const at = Date.UTC(2025, 0, 6, 12);
     expect(dayLabel(at)).toBe(dayLabelBefore(at, "en"));
-    setLocale("de");
-    expect(dayLabel(at)).toBe(dayLabelBefore(at, "de"));
+    setLocale("zh");
+    expect(dayLabel(at)).toBe(dayLabelBefore(at, "zh"));
     expect(dayLabel(at)).not.toBe(new Date(at).toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" }));
-    setLocale("fr");
-    expect(dayLabel(at)).toBe(dayLabelBefore(at, "fr"));
+    setLocale("en");
+    expect(dayLabel(at)).toBe(dayLabelBefore(at, "en"));
   });
 });
 

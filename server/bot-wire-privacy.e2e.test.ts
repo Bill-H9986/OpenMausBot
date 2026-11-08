@@ -40,7 +40,7 @@ describe("bot wire privacy against the real server", () => {
     output = "";
     writeFileSync(join(data, "config.json"), JSON.stringify({
       features: { skillsLibrary },
-      instances: { grok: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: false } } },
+      instances: { grok: { driver: "deepseekAgent", environment: { FAKE_ACP_MODELS: "fake-model" }, config: { cli: FAKE_CLI, fullAuto: false } } },
     }));
     const proc = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
       cwd: ROOT,

@@ -59,7 +59,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   fixture.values = [];
   fixture.refs = [];
-  fixture.config = { anthropic: { configured: false }, box: { configured: false } };
+  fixture.config = { openaiCompat: { configured: false }, box: { configured: false } };
   vi.stubGlobal("window", {});
   vi.stubGlobal("document", { activeElement: null });
 });
@@ -71,26 +71,26 @@ describe("a key saved in Settings → API keys", () => {
     ["rejected", { ok: false, reason: "rejected" }],
     ["unverified", { ok: false, reason: "unreachable" }],
   ])("reports one save whose result is the key test's verdict (%s), and never the key", async (result, verdict) => {
-    fixture.api.mockResolvedValueOnce({ ...fixture.config, anthropic: { configured: true, last4: KEY.slice(-4) } }).mockResolvedValueOnce(verdict);
-    await enterKey({ id: "anthropic" });
+    fixture.api.mockResolvedValueOnce({ ...fixture.config, openaiCompat: { configured: true, last4: KEY.slice(-4) } }).mockResolvedValueOnce(verdict);
+    await enterKey({ id: "openaiCompat" });
     expect(fixture.api.mock.calls.map(([path]) => path)).toEqual(["/api/config", "/api/keys/test"]);
-    expect(fixture.track.mock.calls).toEqual([["api_key_saved", { provider: "anthropic", via: "settings", result }]]);
+    expect(fixture.track.mock.calls).toEqual([["api_key_saved", { provider: "openai_compat", via: "settings", result }]]);
     expectNoKeyIn(fixture.track.mock.calls);
   });
 
   it("still reports the verdict when typing again made the row stop showing it", async () => {
     let answer!: (value: unknown) => void;
-    fixture.api.mockResolvedValueOnce({ anthropic: { configured: true } }).mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
-    await enterKey({ id: "anthropic" });
+    fixture.api.mockResolvedValueOnce({ openaiCompat: { configured: true } }).mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    await enterKey({ id: "openaiCompat" });
     answer({ ok: true });
     await flush();
-    expect(fixture.track.mock.calls).toEqual([["api_key_saved", { provider: "anthropic", via: "settings", result: "ok" }]]);
+    expect(fixture.track.mock.calls).toEqual([["api_key_saved", { provider: "openai_compat", via: "settings", result: "ok" }]]);
   });
 
   it("reports a refused save as an error even when the server's words echo the key", async () => {
     fixture.api.mockRejectedValueOnce(new ApiError(`Invalid key ${KEY}`, 400, { error: `Invalid key ${KEY}` }));
-    await enterKey({ id: "anthropic" });
-    expect(fixture.track.mock.calls).toEqual([["api_key_saved", { provider: "anthropic", via: "settings", result: "error" }]]);
+    await enterKey({ id: "openaiCompat" });
+    expect(fixture.track.mock.calls).toEqual([["api_key_saved", { provider: "openai_compat", via: "settings", result: "error" }]]);
     expectNoKeyIn(fixture.track.mock.calls);
   });
 
@@ -111,19 +111,10 @@ describe("a key saved in Settings → API keys", () => {
     expect(fixture.track.mock.calls).toEqual([["api_key_saved", { provider: "boat", via: "settings", result: "ok" }]]);
   });
 
-  it("saves an xAI key through the desktop's encrypted store, so Remove clears the stored copy too", async () => {
-    const setCredential = vi.fn().mockResolvedValue({ xai: { configured: true } });
-    vi.stubGlobal("window", { ogb: { setCredential } });
-    fixture.api.mockResolvedValue({ ok: true });
-    await enterKey({ id: "xai" });
-    expect(setCredential).toHaveBeenCalledWith("xaiApiKey", KEY);
-    expect(fixture.api.mock.calls.map(([path]) => path)).toEqual(["/api/keys/test"]);
-  });
-
   it("reports a removed key as removed, once, and a failed remove not at all", async () => {
-    fixture.config = { anthropic: { configured: true, last4: "6789" } };
-    fixture.api.mockRejectedValueOnce(new ApiError("busy", 409, { error: "busy" })).mockResolvedValueOnce({ anthropic: { configured: false } });
-    const remove = () => render({ id: "anthropic" }).find((node) => node.type === "button" && node.props["data-key-remove"])!;
+    fixture.config = { openaiCompat: { configured: true, last4: "6789" } };
+    fixture.api.mockRejectedValueOnce(new ApiError("busy", 409, { error: "busy" })).mockResolvedValueOnce({ openaiCompat: { configured: false } });
+    const remove = () => render({ id: "openaiCompat" }).find((node) => node.type === "button" && node.props["data-key-remove"])!;
     remove().props.onClick!();
     await flush();
     expect(fixture.track).not.toHaveBeenCalled();
@@ -131,7 +122,7 @@ describe("a key saved in Settings → API keys", () => {
     remove().props.onClick!();
     await flush();
     expect(fixture.api).toHaveBeenCalledTimes(2);
-    expect(fixture.track.mock.calls).toEqual([["api_key_removed", { provider: "anthropic", via: "settings" }]]);
+    expect(fixture.track.mock.calls).toEqual([["api_key_removed", { provider: "openai_compat", via: "settings" }]]);
   });
 
   it("offers Remove for a Composio project key of the person's own, and none for the managed connection", async () => {

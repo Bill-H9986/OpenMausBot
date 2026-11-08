@@ -12,7 +12,7 @@ import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const FAKE_CLAUDE = join(ROOT, "server/testing/fake-claude-cli.ts");
+const FAKE_ACP = join(ROOT, "server/testing/fake-acp-cli.ts");
 const INCLUDED = `box_omb_${randomUUID()}`;
 const IDLE_MS = 1_500;
 const FRAME = Buffer.from("/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==", "base64");
@@ -70,7 +70,7 @@ describe("a cloud computer goes to sleep after use and wakes on the next", () =>
     await apiOk("PATCH", `/api/bots/${bot.id}`, { browser: false, ...patch });
     return bot as { id: string; name: string; threadId: string };
   };
-  const model = (instanceId: string) => ({ modelSelection: { instanceId, model: "claude-sonnet-5" } });
+  const model = (instanceId: string) => ({ modelSelection: { instanceId, model: "fake-model" } });
 
   async function launch() {
     const port = await freePortBlock([0, 1]);
@@ -163,12 +163,12 @@ describe("a cloud computer goes to sleep after use and wakes on the next", () =>
     chmodSync(join(home, "bin", "docker"), 0o755);
     writeFileSync(join(data, "config.json"), JSON.stringify({ instances: {
       // Every turn first takes one screenshot through the cloud computer's tools, as a model's first computer call does.
-      uses: { driver: "claudeAgent", config: { cli: FAKE_CLAUDE }, environment: { FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1" } },
+      uses: { driver: "deepseekAgent", config: { cli: FAKE_ACP }, environment: { FAKE_ACP_MODE: "computer-call", FAKE_ACP_MODELS: "fake-model" } },
       // Works until the gate file exists, touching no computer.
-      slow: { driver: "claudeAgent", config: { cli: FAKE_CLAUDE }, environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: gate } },
+      slow: { driver: "deepseekAgent", config: { cli: FAKE_ACP }, environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: gate, FAKE_ACP_MODELS: "fake-model" } },
       // One screenshot, then works until its own gate file exists.
-      usesSlow: { driver: "claudeAgent", config: { cli: FAKE_CLAUDE }, environment: {
-        FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1", FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: usesGate,
+      usesSlow: { driver: "deepseekAgent", config: { cli: FAKE_ACP }, environment: {
+        FAKE_ACP_MODE: "computer-call", FAKE_ACP_GATE_FILE: usesGate, FAKE_ACP_MODELS: "fake-model",
       } },
     } }));
     await launch();

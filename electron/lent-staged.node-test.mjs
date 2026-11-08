@@ -4,6 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fakeCloud, sha } from "./fixtures/cloud-sync-fake-cloud.mjs";
+
+const canSymlink = (() => {
+  const probe = mkdtempSync(join(tmpdir(), "omb-symlink-probe-"));
+  try {
+    symlinkSync(join(probe, "target"), join(probe, "link"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
 import { applyStaged, renameWithRetry } from "./lent-staged.mjs";
 
 const AT = new Date(2026, 9, 27, 12).getTime();
@@ -63,7 +75,7 @@ test("already there is done; a folder no longer lent with editing keeps the chan
   assert.equal(readFileSync(join(r.root, "plan.md"), "utf8"), "the plan");
 });
 
-test("the live write's rules hold: never .git, never through a link, never a damaged download", async (t) => {
+test("the live write's rules hold: never .git, never through a link, never a damaged download", { skip: canSymlink ? false : "symlinks need a privilege this host lacks" }, async (t) => {
   const s = setup(t);
   mkdirSync(join(s.dir, "outside"));
   symlinkSync(join(s.dir, "outside"), join(s.root, "link"));

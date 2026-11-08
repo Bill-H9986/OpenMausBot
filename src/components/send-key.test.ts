@@ -46,6 +46,7 @@ const { setSendKey } = await import("@/lib/send-key");
 const { setFollowUpDefault } = await import("@/lib/follow-up");
 const { setPendingIntent } = await import("@/lib/cloud-intent");
 const { setLocale } = await import("@/lib/i18n");
+const { loadLocalePack } = await import("@/locales");
 const { api } = await import("@/state/store");
 
 const bot: Bot = {
@@ -227,13 +228,14 @@ describe("the send key in hints", () => {
     expect(textarea().placeholder).toBe("Pepper is working. Ctrl+Enter queues your message");
   });
 
-  it("names the key in Japanese hints too", () => {
+  it("names the key in Chinese hints too", async () => {
     fixture.instances = [{ instanceId: "test", driverKind: "codex", displayName: "Test", capabilities: { queueing: true } } as unknown as InstanceInfo];
     setSendKey("mod-enter");
-    setLocale("ja");
+    await loadLocalePack("zh");
+    setLocale("zh");
     try {
       render(createElement(Composer, { bot: { ...bot, busy: true, tasks: [{ ...bot.tasks![0]!, busy: true }] } }));
-      expect(textarea().placeholder).toBe("Pepper が作業中です — Ctrl+Enter で実行中のターンに送ります");
+      expect(textarea().placeholder).toBe("Pepper 正在工作——按 Ctrl+Enter 会把这条送进当前轮次");
     } finally {
       setLocale("en");
     }

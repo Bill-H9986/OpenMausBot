@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
@@ -19,21 +19,25 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
   const { dataDir, url, logPath } = session.info;
   let server: ChildProcess | undefined;
   try {
-    const launchesPath = join(dataDir, "launches.jsonl");
+    const launchDir = join(dataDir, "launches");
+    mkdirSync(launchDir, { recursive: true });
     const rpcPath = join(dataDir, "acp-rpc.jsonl");
     const acpDump = join(dataDir, "acp-dump.json");
     const userData = join(dataDir, "user-data");
     const release = join(dataDir, "release");
-    // Every Claude turn runs until `release` exists; record what each launch mounted.
-    const claude = join(dataDir, "claude.mjs");
-    writeFileSync(claude, [
+    // Every turn runs until `release` exists; each engine process dumps the MCP servers it mounted.
+    const engine = join(dataDir, "engine.mjs");
+    writeFileSync(engine, [
       "#!/usr/bin/env node",
-      'import { appendFileSync, readFileSync } from "node:fs";',
-      "const argv = process.argv.slice(2);",
-      "const after = (flag) => { const i = argv.indexOf(flag); return i === -1 ? null : argv[i + 1] ?? null; };",
-      'let servers = {}; try { servers = JSON.parse(readFileSync(after("--mcp-config"), "utf8")).mcpServers ?? {}; } catch {}',
-      `if (after("--resume") || after("--session-id")) appendFileSync(${JSON.stringify(launchesPath)}, JSON.stringify({ resume: after("--resume"), servers: Object.keys(servers), token: servers.agents?.env?.OMB_COMMS_TOKEN ?? null, control: servers.computer?.env?.OMB_CONTROL_TOKEN ?? null }) + "\\n");`,
-      `await import(${JSON.stringify(pathToFileURL(fileURLToPath(new URL("./testing/fake-claude-cli.ts", import.meta.url))).href)});`,
+      'import { appendFileSync } from "node:fs";',
+      'import { join } from "node:path";',
+      `const dir = ${JSON.stringify(launchDir)};`,
+      'if (!process.argv.includes("--version")) {',
+      '  process.env.FAKE_ACP_DUMP = join(dir, `${process.pid}.json`);',
+      '  process.env.FAKE_ACP_RPC_APPEND_FILE = join(dir, `${process.pid}.rpc.jsonl`);',
+      '}',
+      `appendFileSync("C:/temp/engine-invoked.log", JSON.stringify({ args: process.argv.slice(2), dump: process.env.FAKE_ACP_DUMP ?? null, dir, cwd: process.cwd() }) + "\\n");`,
+      `await import(${JSON.stringify(pathToFileURL(fileURLToPath(new URL("./testing/fake-acp-cli.ts", import.meta.url))).href)});`,
     ].join("\n"), { mode: 0o700 });
     const browser = join(dataDir, "agent-browser.mjs");
     writeFileSync(browser, [
@@ -44,13 +48,17 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
     await waitForExit(session.child, { signal: "SIGTERM" });
     const configPath = join(dataDir, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
-    config.instances.claude.config.cli = claude;
+    config.instances.claude.config.cli = engine;
     config.instances.opencodeGo = {
-      driver: "opencodeGo", displayName: "ACP fixture",
+      driver: "deepseekAgent", displayName: "ACP fixture",
       config: { cli: fileURLToPath(new URL("./testing/fake-acp-cli.ts", import.meta.url)) },
       environment: { FAKE_ACP_MODELS: "fixture/warm", FAKE_ACP_RPC_APPEND_FILE: rpcPath, FAKE_ACP_DUMP: acpDump },
     };
     writeFileSync(configPath, JSON.stringify(config));
+    mkdirSync(join(dataDir, "providers", "engine-models"), { recursive: true });
+    writeFileSync(join(dataDir, "providers", "engine-models", "claude.json"), JSON.stringify({
+      default: "fake-model", options: [{ id: "fake-model", label: "Fake model" }],
+    }));
     if (thisComputer) {
       // What the desktop app hands its own server once its driver is running.
       mkdirSync(userData, { recursive: true });
@@ -66,7 +74,7 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
       fileURLToPath(new URL("./index.ts", import.meta.url))], {
       cwd: fileURLToPath(new URL("..", import.meta.url)),
       env: {
-        ...verificationServerEnvironment({ FAKE_CLAUDE_MODE: "hang", FAKE_CLAUDE_RELEASE: release }, dataDir, Number(new URL(url).port)),
+        ...verificationServerEnvironment({ ...process.env, FAKE_ACP_RELEASE_FILE: release }, dataDir, Number(new URL(url).port)),
         ...(withBrowser ? { OMB_AGENT_BROWSER_PATH: browser } : {}),
         ...(thisComputer ? { OMB_TEST_DESKTOP_CUA_CONNECTION: join(userData, "cua-connection.json") } : {}),
       },
@@ -105,7 +113,22 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
     };
     const agents = async (token: string) => (await api("GET", "/api/internal/agents", undefined, token)).status;
     const acpServers = () => (JSON.parse(readFileSync(`${acpDump}.mcp.json`, "utf8")) as Array<{ name: string }>).map((server) => server.name);
-    await test({ dataDir, cli, api, turn, hold, finish, agents, launches: () => jsonl(launchesPath), rpc: () => jsonl(rpcPath), acpServers });
+    const launches = () => readdirSync(launchDir).filter((name) => /^\d+\.json$/.test(name)).map((name) => {
+      const pid = Number.parseInt(name, 10);
+      const dump = JSON.parse(readFileSync(join(launchDir, name), "utf8")) as {
+        mcpConfig?: { mcpServers?: Record<string, { env?: Record<string, string> }> };
+      };
+      const mounts = dump.mcpConfig?.mcpServers ?? {};
+      const calls = jsonl(join(launchDir, name.replace(/\.json$/, ".rpc.jsonl")));
+      return {
+        pid,
+        servers: Object.keys(mounts),
+        token: mounts.agents?.env?.OMB_COMMS_TOKEN ?? null,
+        control: mounts.computer?.env?.OMB_CONTROL_TOKEN ?? null,
+        resume: calls.some((call: { method?: string }) => call.method === "session/resume"),
+      };
+    }).sort((a, b) => a.pid - b.pid);
+    await test({ dataDir, cli, api, turn, hold, finish, agents, launches, rpc: () => jsonl(rpcPath), acpServers });
   } finally {
     if (server) await waitForExit(server, { signal: "SIGTERM" });
     await session.close();
@@ -161,7 +184,7 @@ it("honours a thread's credential only while its turns run, and retires it on St
   expect(await f.agents(restarted)).toBe(200);
   await f.finish(bot, thread);
 
-  expect((await f.api("PATCH", `/api/bots/${bot.id}/tasks/${thread}`, { approvalMode: "edits" })).status).toBe(200);
+  expect((await f.api("PATCH", `/api/bots/${bot.id}/tasks/${thread}`, { approvalMode: "auto" })).status).toBe(200);
   await f.turn(bot, thread, "Edit freely.");
   const raised = f.launches().at(-1).token;
   expect((await f.api("PATCH", `/api/bots/${bot.id}/tasks/${thread}`, { approvalMode: "ask" })).status).toBe(200);
@@ -177,7 +200,7 @@ it("honours a thread's credential only while its turns run, and retires it on St
   expect(await f.agents(lowered)).toBe(401);
 }), 120_000);
 
-itAutoThisComputer("keeps a thread's Claude process and ACP session across turns on Auto with this computer mounted", () => fixture(async (f) => {
+itAutoThisComputer("keeps a thread's engine process and ACP session across turns on Auto with this computer mounted", () => fixture(async (f) => {
   const { bot } = await f.cli("new-bot", "--name", "Warm desktop");
   for (const text of ["First question.", "Second question.", "Third question.", "Fourth question."]) {
     await f.turn(bot, bot.activeTaskId, text);

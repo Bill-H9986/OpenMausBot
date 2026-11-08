@@ -8,7 +8,6 @@ import type { Bot } from "@/state/store";
 // Advanced mode's fold-out settings list Library too, with what the bot made, as Simple mode's panel does.
 vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => true, setAdvancedMode: () => {} }));
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => false }));
-vi.mock("./bot-settings/useSlackManagement", () => ({ useSlackManagementUrl: () => null }));
 vi.mock("./bot-settings/useBotSettingsDerived", () => ({ useBotSettingsDerived: () => ({}) }));
 const fixture = vi.hoisted(() => ({ dispatch: vi.fn(), onOpen: undefined as undefined | ((page: string) => void) }));
 vi.mock("@/state/store", async (importOriginal) => {

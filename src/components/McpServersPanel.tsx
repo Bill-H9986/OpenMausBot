@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Check,
   CheckCircle2,
   FlaskConical,
   Globe,
@@ -26,14 +25,10 @@ import { api, useStore } from "@/state/store";
 import { McpAppsSwitch } from "./McpAppsSwitch";
 import { Switch } from "./SettingsPrimitives";
 import { ClaudeCodeSwitches } from "./ClaudeCodeSwitches";
-import { HostedMcpIcon } from "./HostedMcpIcon";
 import type { McpMessage } from "./McpResultBudgetField";
 import { McpServerEditor, type McpServerSubmission } from "./McpServerEditor";
 import { isRemoteMcpListing, type McpServerListing } from "./mcp-draft";
-import { HOSTED_MCP_APPS, hostedConnections, hostedMcpApp, hostedServerName, type HostedApp, type HostedConnections, type HostedMcpAppId } from "@/lib/hosted-mcp-apps";
-import { POSTIZ_SERVER } from "../../shared/postiz";
 import { CHAT_TOOL_LIMIT, chatToolBudgetFit } from "../../shared/tool-budget";
-import { openBotSettings } from "./bot-panel/panel-link";
 
 export interface ProbeResult {
   ok: boolean;
@@ -65,18 +60,6 @@ async function toolsCheck(
   }
 }
 
-export async function signedInToolsCheck(
-  name: string,
-  request: (path: string, init?: RequestInit) => Promise<ProbeResult>,
-  signal: AbortSignal,
-  service: string,
-): Promise<ProbeResult> {
-  const tested = await toolsCheck(name, request, signal);
-  if (tested.ok) return tested;
-  const reason = (tested.error ?? "").trim();
-  return { ...tested, error: t("hostedMcp.testFailed", { service, reason: reason && !/[.!?]$/.test(reason) ? `${reason}.` : reason }) };
-}
-
 /** Security: names the headers, never their values. */
 function failureReason(server: McpServerListing, result: ProbeResult): string {
   if (result.reason !== "keys" || !isRemoteMcpListing(server)) return result.error ?? "";
@@ -94,21 +77,11 @@ export function connectedLabel(result: Pick<ProbeResult, "tools" | "total">): st
   return fit === "fits" ? connected : `${connected}. ${t(fit === "exceeds" ? "mcp.check.overLimit" : "mcp.check.crowdsLimit", { count, limit: CHAT_TOOL_LIMIT })}`;
 }
 
-export interface HostedCardsProps {
-  /** Whether this app's card shows now (search, filter, category view). A hidden card stays mounted. */
-  shown(id: HostedMcpAppId): boolean;
-  onConnections(connected: HostedConnections): void;
-}
-
-/** `hostedCards`: render the one-click card of each hosted MCP app (one instance, one server load, one sign-in at a time)
- * instead of the server list. `hideHosted`: leave hosted apps' servers (and Postiz's) out of the list, since their cards show them. */
-export function McpServersPanel({ embedded = false, hostedCards, hideHosted = false, refreshKey = 0 }: {
+export function McpServersPanel({ embedded = false, refreshKey = 0 }: {
   embedded?: boolean;
-  hostedCards?: HostedCardsProps;
-  hideHosted?: boolean;
   refreshKey?: number;
 } = {}) {
-  const { state: store, dispatch } = useStore();
+  const { state: store } = useStore();
   const botName = (id: string) => store.bots?.find((bot) => bot.id === id)?.name ?? id;
   const policy = store.config?.managedPolicy;
   const restricted = Boolean(policy && !policy.mcp.allowCustom);
@@ -129,14 +102,8 @@ export function McpServersPanel({ embedded = false, hostedCards, hideHosted = fa
   /** Each server a passing test just switched on, and when; and the one being tested to switch it on. */
   const switchedOn = useRef<Record<string, number>>({});
   const [connecting, setConnecting] = useState<string | null>(null);
-  /** A failed card action belongs to that card alone: the cards share one instance, and `error` shows on every one. */
-  const [cardFailure, setCardFailure] = useState<{ id: HostedMcpAppId; message: string } | null>(null);
   const loadGeneration = useRef(0);
   const mounted = useRef(true);
-  const hostedOf = (server: McpServerListing) => isRemoteMcpListing(server) ? hostedMcpApp(server) : undefined;
-  const connections = useMemo(() => servers && hostedConnections(servers), [servers]);
-  const onConnections = hostedCards?.onConnections;
-  useEffect(() => { if (connections) onConnections?.(connections); }, [connections, onConnections]);
 
   const listed = (next: McpServerListing[] | undefined) => {
     setServers(next ?? []);
@@ -335,10 +302,8 @@ export function McpServersPanel({ embedded = false, hostedCards, hideHosted = fa
     setCallbackUrl("");
     setCallbackError(null);
     setError(null);
-    setCardFailure(null);
     setNotice(null);
     forgetProbe(server.name);
-    const hosted = hostedOf(server);
     try {
       const result = await runMcpSignIn(server.name, { api, open: openExternalLink, signal: controller.signal, onStarted: (status, complete) => {
         setSignInFlow(status);
@@ -347,14 +312,13 @@ export function McpServersPanel({ embedded = false, hostedCards, hideHosted = fa
       if (!mounted.current || controller.signal.aborted) return;
       if (result.phase === "succeeded") {
         setSignInFlow({ ...result, flowId: null, authorizationUrl: null });
-        const tested = hosted ? await signedInToolsCheck(server.name, api, controller.signal, hosted.label) : await toolsCheck(server.name, api, controller.signal);
+        const tested = await toolsCheck(server.name, api, controller.signal);
         if (controller.signal.aborted || !mounted.current) return;
         setProbe((current) => ({ ...current, [server.name]: tested }));
         if (!tested.ok) return;
         const enabled = await api(`/api/mcp/servers/${server.name}`, { method: "PATCH", body: JSON.stringify({ enabled: true }) });
         if (!mounted.current) return;
         listed(enabled.servers);
-        if (hosted) setNotice({ key: "hostedMcp.connected", params: { service: hosted.label } });
       } else if (result.phase !== "cancelled") {
         setProbe((current) => ({ ...current, [server.name]: { ok: false, error: result.message || t("mcp.auth.failed") } }));
       }
@@ -374,28 +338,6 @@ export function McpServersPanel({ embedded = false, hostedCards, hideHosted = fa
     }
   }
 
-  const connectHosted = async (app: HostedApp) => {
-    if (!servers || busy !== null || signingIn !== null) return;
-    const existing = servers.find((server) => hostedOf(server) === app);
-    if (existing) { await signIn(existing); return; }
-    setBusy(`hosted:${app.id}`);
-    loadGeneration.current += 1;
-    setError(null);
-    setCardFailure(null);
-    setNotice(null);
-    let added: McpServerListing | undefined;
-    try {
-      const name = hostedServerName(app, servers);
-      const result = await api("/api/mcp/servers", { method: "POST", body: JSON.stringify({ name, type: "http", url: app.url, enabled: false }) });
-      if (!mounted.current) return;
-      added = listed(result.servers).find((server: McpServerListing) => server.name === name && hostedOf(server) === app);
-      if (!added) throw new Error(t("hostedMcp.setupFailed", { service: app.label }));
-    } catch (cause) {
-      if (mounted.current) setCardFailure({ id: app.id, message: cause instanceof Error ? cause.message : String(cause) });
-    } finally { if (mounted.current) setBusy(null); }
-    if (added && mounted.current) await signIn(added);
-  };
-
   const completeSignIn = async () => {
     if (!signingIn || !signInFlow?.flowId || completingSignIn) return;
     const controller = signInAbort.current;
@@ -411,21 +353,16 @@ export function McpServersPanel({ embedded = false, hostedCards, hideHosted = fa
     }
   };
 
-  const signOut = async (server: McpServerListing, card?: HostedApp) => {
+  const signOut = async (server: McpServerListing) => {
     setBusy(`signout:${server.name}`);
     loadGeneration.current += 1;
     setError(null);
-    setCardFailure(null);
     setNotice(null);
     forgetProbe(server.name);
     try {
-      if (hostedOf(server)) {
-        listed((await api(`/api/mcp/servers/${server.name}`, { method: "PATCH", body: JSON.stringify({ enabled: false }) })).servers);
-      }
       listed((await api(`/api/mcp/servers/${server.name}/sign-out`, { method: "POST" })).servers);
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      if (card) setCardFailure({ id: card.id, message }); else setError(message);
+      setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(null);
     }
@@ -468,11 +405,10 @@ export function McpServersPanel({ embedded = false, hostedCards, hideHosted = fa
   }
 
   function renderSignIn(server: McpServerListing) {
-    const hosted = hostedOf(server);
     return signingIn === server.name && (
       <div className="mt-3 space-y-3 rounded-lg bg-raised px-3 py-3 text-[12px] text-ink-secondary">
         <div role="status" className="flex items-center gap-2">
-          <Loader2 size={13} className="animate-spin" /> {signInFlow?.phase !== "succeeded" ? t("mcp.auth.waiting") : hosted ? t("hostedMcp.loadingTools", { service: hosted.label }) : t("mcp.auth.loadingTools")}
+          <Loader2 size={13} className="animate-spin" /> {signInFlow?.phase !== "succeeded" ? t("mcp.auth.waiting") : t("mcp.auth.loadingTools")}
         </div>
         {signInFlow?.authorizationUrl && mcpSignInLink(signInFlow.authorizationUrl) && (
           <button type="button" onClick={() => void openExternalLink(signInFlow.authorizationUrl!).catch(() => setCallbackError(t("mcp.auth.openFailed")))} className="text-accent hover:underline">
@@ -494,49 +430,7 @@ export function McpServersPanel({ embedded = false, hostedCards, hideHosted = fa
     );
   }
 
-  function renderHostedCard(app: HostedApp) {
-    const server = servers?.find((listed) => hostedOf(listed) === app);
-    const connected = Boolean(connections?.[app.id]);
-    const result = server && probe[server.name];
-    const failed = error || (cardFailure?.id === app.id ? cardFailure.message : null) || (result && !result.ok ? result.error : null);
-    const pending = busy !== null || signingIn !== null;
-    const mine = busy === `hosted:${app.id}` || (server !== undefined && (signingIn === server.name || busy === `signout:${server.name}`));
-    return <div data-app-tile={app.id} className="flex min-w-0 flex-col rounded-xl px-2 py-2 transition-colors hover:bg-raised/40">
-      <div className="flex items-center gap-3">
-        <HostedMcpIcon app={app} />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[14px] font-semibold leading-5 text-ink">{app.label}</span>
-            {connected && <Check size={13} strokeWidth={2.5} className="shrink-0 text-success" aria-label={t("apps.connected")} />}
-          </div>
-          <p className="truncate text-[13px] leading-[18px] text-ink-secondary" title={t(app.description)}>{t(app.description)}</p>
-        </div>
-        {server && signingIn === server.name ? <button type="button" onClick={() => signInAbort.current?.abort()} className="inline-flex h-7 shrink-0 items-center rounded-full bg-control/80 px-3 text-[13px] font-medium leading-5 text-ink">{t("mcp.auth.cancel")}</button> :
-          <button type="button" aria-label={t(connected ? "hostedMcp.disconnect" : "hostedMcp.connect", { service: app.label })}
-            disabled={pending || (servers !== null && !connected && (Boolean(server?.managedBy) || (restricted && !policy?.mcp.allowlist.length)))}
-            onClick={() => void (servers === null ? load() : connected && server ? signOut(server, app) : connectHosted(app))}
-            className="inline-flex h-7 min-w-[64px] shrink-0 items-center justify-center gap-2 rounded-full bg-control/80 px-3 text-[13px] font-medium leading-5 text-ink hover:bg-raised-hover disabled:opacity-40">
-            {pending && (mine || busy === "load") ? <Loader2 size={14} className="animate-spin" /> : servers === null ? t("connectors.action.retry") : t(connected ? "connectors.disconnect" : "connectors.action.connect")}
-          </button>}
-      </div>
-      <div className="ps-[52px]">
-      {failed && <p role="alert" className="mt-1.5 text-[12px] text-danger">{typeof failed === "string" ? failed : t(failed.key, failed.params)}</p>}
-      {server && renderSignIn(server)}
-      <details className="mt-1 text-[12px] text-ink-secondary">
-        <summary className="cursor-pointer">{t("hostedMcp.access")}</summary>
-        <p className="mt-2 leading-relaxed">{t(app.notice)}</p>
-        <p className="mt-2 leading-relaxed">{t("hostedMcp.accessHint")}</p>
-        <div className="mt-2 flex flex-wrap gap-2">{(store.bots ?? []).filter((bot) => !bot.hidden).map((bot) => <button key={bot.id} type="button" onClick={() => { dispatch({ type: "togglePlugins", open: false }); openBotSettings(dispatch, "access", { botId: bot.id, page: "mcp" }); }} className="rounded-lg bg-control px-2.5 py-1.5 text-ink hover:bg-raised-hover">{t("hostedMcp.botSettings", { name: bot.name })}</button>)}</div>
-      </details>
-      </div>
-    </div>;
-  }
-
-  if (hostedCards) {
-    return <>{HOSTED_MCP_APPS.map((app) => <div key={app.id} className={hostedCards.shown(app.id) ? "contents" : "hidden"}>{renderHostedCard(app)}</div>)}</>;
-  }
-
-  const visibleServers = servers?.filter((server) => !hideHosted || !isRemoteMcpListing(server) || !(hostedMcpApp(server) || server.name === POSTIZ_SERVER));
+  const visibleServers = servers;
 
   return (
     <section
@@ -601,20 +495,19 @@ export function McpServersPanel({ embedded = false, hostedCards, hideHosted = fa
         ) : (
           <div className="mt-5 space-y-3">
             {visibleServers?.map((server) => {
-              const hosted = hostedOf(server);
               const result = probe[server.name];
               const auth = isRemoteMcpListing(server) ? server.auth : undefined;
               const canSignIn = isRemoteMcpListing(server) && !server.runsOn
-                && (auth === "needs-sign-in" || result?.auth === "required" || ((Boolean(hosted) || Boolean(server.oauth)) && auth !== "signed-in"));
+                && (auth === "needs-sign-in" || result?.auth === "required" || (Boolean(server.oauth) && auth !== "signed-in"));
               return (
-                <div key={server.name} data-hosted-server={hosted?.id} className="rounded-2xl border border-hairline/50 bg-card px-4 py-4 sm:px-5">
+                <div key={server.name} className="rounded-2xl border border-hairline/50 bg-card px-4 py-4 sm:px-5">
                   <div data-mcp-row className="flex flex-wrap items-center gap-3">
                     <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl", server.enabled ? "bg-success/10 text-success" : "bg-raised text-ink-secondary")}>
-                      {hosted ? <HostedMcpIcon app={hosted} /> : isRemoteMcpListing(server) ? <Globe size={19} /> : <ServerCog size={19} />}
+                      {isRemoteMcpListing(server) ? <Globe size={19} /> : <ServerCog size={19} />}
                     </div>
                     <div className="min-w-0 flex-[1_1_220px]">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="min-w-0 truncate text-[14px] font-medium text-ink">{hosted ? hosted.label : server.name}</span>
+                        <span className="min-w-0 truncate text-[14px] font-medium text-ink">{server.name}</span>
                         <span className={cn("rounded-full px-2 py-0.5 text-[11px]", server.enabled ? "bg-success/10 text-success" : "bg-raised text-ink-secondary")}>{t(server.enabled ? "mcp.badge.on" : "mcp.badge.off")}</span>
                         {auth && <span className={cn("rounded-full px-2 py-0.5 text-[11px]", auth === "signed-in" ? "bg-success/10 text-success" : "bg-warning/10 text-warning")}>{t(auth === "signed-in" ? "mcp.auth.signedIn" : "mcp.auth.needsSignIn")}</span>}
                         {server.managedBy && <span className="rounded-full bg-raised px-2 py-0.5 text-[11px] text-ink-secondary">{t("policy.managedBy", { organization: server.managedBy })}</span>}
@@ -636,11 +529,11 @@ export function McpServersPanel({ embedded = false, hostedCards, hideHosted = fa
                         </button>
                       ) : canSignIn ? (
                         <button type="button" disabled={busy !== null || signingIn !== null || Boolean(server.managedBy)} onClick={() => void signIn(server)} className="flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-2 text-[12px] font-medium text-white hover:brightness-110 disabled:opacity-40">
-                          <LogIn size={14} /> {hosted ? t("hostedMcp.connect", { service: hosted.label }) : t("mcp.auth.signIn")}
+                          <LogIn size={14} /> {t("mcp.auth.signIn")}
                         </button>
                       ) : auth === "signed-in" ? (
                         <button type="button" disabled={busy !== null || signingIn !== null} onClick={() => void signOut(server)} className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40">
-                          {busy === `signout:${server.name}` ? <Loader2 size={14} className="animate-spin" /> : <LogOut size={14} />} {hosted ? t("hostedMcp.disconnect", { service: hosted.label }) : t("mcp.auth.signOut")}
+                          {busy === `signout:${server.name}` ? <Loader2 size={14} className="animate-spin" /> : <LogOut size={14} />} {t("mcp.auth.signOut")}
                         </button>
                       ) : null}
                       <button type="button" disabled={busy !== null || signingIn !== null} onClick={() => void test(server)} className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40">
@@ -663,14 +556,6 @@ export function McpServersPanel({ embedded = false, hostedCards, hideHosted = fa
                       </span>
                     </div>
                   </div>
-                  {hosted && <div className="mt-3 text-[12px] leading-relaxed text-ink-secondary">
-                    <p>{t(hosted.notice)}</p>
-                    <details className="mt-2">
-                      <summary className="cursor-pointer font-medium text-ink">{t("hostedMcp.access")}</summary>
-                      <p className="mt-2">{t("hostedMcp.accessHint")}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">{(store.bots ?? []).filter((bot) => !bot.hidden).map((bot) => <button key={bot.id} type="button" onClick={() => { dispatch({ type: "togglePlugins", open: false }); openBotSettings(dispatch, "access", { botId: bot.id, page: "mcp" }); }} className="rounded-lg bg-control px-2.5 py-1.5 text-ink hover:bg-raised-hover">{t("hostedMcp.botSettings", { name: bot.name })}</button>)}</div>
-                    </details>
-                  </div>}
                   <McpAppsSwitch<McpServerListing> server={server} disabled={busy !== null || signingIn !== null} onSaved={(next) => { loadGeneration.current += 1; listed(next); }} />{renderSignIn(server)}
                   {connecting === server.name && !server.enabled && !result && (
                     <div role="status" data-mcp-testing className="mt-3 flex items-center gap-2 rounded-lg bg-raised px-3 py-2 text-[12px] text-ink-secondary">

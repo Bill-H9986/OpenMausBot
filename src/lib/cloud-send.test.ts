@@ -57,10 +57,10 @@ describe("the one-time move's line", () => {
   });
 
   it("is in every language's own words", () => {
-    setLocale("de");
-    expect(moveLine({ phase: "copy" }, "local")?.text).toBe("Deine Bots ziehen in die Cloud um…");
-    expect(moveLine({ phase: "copy", updating: true }, "local")?.text).toBe("My Cloud wird gerade aktualisiert. Dein Umzug beginnt, sobald das erledigt ist.");
-    expect(moveLine({ phase: "wait", waitingFor: "", waitingWhat: "sign-in" }, "local")?.text).toBe("Deine Bots ziehen in die Cloud um… warte, bis eine Anmeldung fertig ist");
+    setLocale("zh");
+    expect(moveLine({ phase: "copy" }, "local")?.text).toBe("正在把你的机器人迁移到 Cloud…");
+    expect(moveLine({ phase: "copy", updating: true }, "local")?.text).toBe("My Cloud 正在更新。更新完成后就会开始迁移。");
+    expect(moveLine({ phase: "wait", waitingFor: "", waitingWhat: "sign-in" }, "local")?.text).toBe("正在把你的机器人迁移到 Cloud… 等待一次登录完成");
   });
 });
 
@@ -71,9 +71,9 @@ describe("the line on a computer whose bots came home to another one", () => {
       .toEqual({ kind: "done", text: "Your bots came back to MacBook Air. This computer keeps its copy from October 21, 2026, with automations off.", extra: [] });
     expect(moveLine({ phase: "back", elsewhere: { name: "MacBook Air" } }, "local")?.text, "a copy already deleted is not offered").toBe("Your bots came back to MacBook Air.");
     expect(moveLine({ phase: "back", elsewhere: { name: "MacBook Air", since } }, "cloud")).toBeNull();
-    setLocale("de");
+    setLocale("zh");
     expect(moveLine({ phase: "back", elsewhere: { name: "MacBook Air", since } }, "local")?.text)
-      .toBe("Deine Bots sind zurück auf MacBook Air. Dieser Computer behält seine Kopie vom 21. Oktober 2026, mit ausgeschalteten Automatisierungen.");
+      .toBe("你的机器人回到了 MacBook Air。这台电脑保留它在 2026年10月21日 的副本，自动化已关闭。");
   });
 });
 

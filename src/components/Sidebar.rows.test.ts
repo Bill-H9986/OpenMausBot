@@ -81,7 +81,7 @@ function counted() {
   for (const name of renders.bots) bots[name] = (bots[name] ?? 0) + 1;
   const threads: Record<string, number> = {};
   for (const body of renders.threads) {
-    const title = threadTitles.find((candidate) => body.includes(`“${candidate}”`));
+    const title = threadTitles.find((candidate) => body.includes(`“${candidate}”`) || body.includes(`「${candidate}」`));
     if (title) threads[title] = (threads[title] ?? 0) + 1;
   }
   return { bots, threads };
@@ -163,11 +163,11 @@ describe("sidebar rows", () => {
 
   it("re-renders every row when the app language changes", async () => {
     try {
-      setLocale("de");
+      setLocale("zh");
       const changed = await rowRendersAfter(draw);
       expect(changed.bots).toEqual({ Atlas: 1, Scout: 1, Pepper: 1 });
       expect(Object.keys(changed.threads)).toHaveLength(3);
-      expect(document.querySelector('[data-sidebar-thread-row="atlas-earlier"]')?.parentElement?.textContent).toContain("vor 2 Std.");
+      expect(document.querySelector('[data-sidebar-thread-row="atlas-earlier"]')?.parentElement?.textContent).toContain("2 小时前");
     } finally {
       setLocale("en");
       await draw();

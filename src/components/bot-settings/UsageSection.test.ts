@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { setLocale } from "@/lib/i18n";
+import { loadLocalePack } from "@/locales";
 
 vi.mock("@/state/store", () => ({
   useStore: () => ({ state: { instances: [] }, dispatch: () => {} }),
@@ -23,13 +24,14 @@ afterEach(() => {
 });
 
 describe("bot settings usage card", () => {
-  it("speaks the app language", () => {
-    setLocale("de");
+  it("speaks the app language", async () => {
+    await loadLocalePack("zh");
+    setLocale("zh");
     const shown = text(renderToStaticMarkup(createElement(UsageSection, {
       bot: bot({ input: 12_000, cachedInput: 10_000, output: 500, costUsd: 0.25, turns: 3 }),
     })));
     for (const english of ["Usage", "All bots", "Turns", "Cost "]) expect(shown).not.toContain(english);
-    for (const german of ["Nutzung", "Alle Bots", "Neue Tokens", "Kosten"]) expect(shown).toContain(german);
+    for (const chinese of ["用量", "所有机器人", "轮次", "费用"]) expect(shown).toContain(chinese);
   });
 
   it("labels a fresh-token figure as new tokens, as the Usage screen does", () => {
@@ -39,9 +41,10 @@ describe("bot settings usage card", () => {
     expect(shown).toContain("New tokens 2.5k");
   });
 
-  it("says so in the app language when nothing is recorded yet", () => {
-    setLocale("de");
+  it("says so in the app language when nothing is recorded yet", async () => {
+    await loadLocalePack("zh");
+    setLocale("zh");
     const shown = text(renderToStaticMarkup(createElement(UsageSection, { bot: bot() })));
-    expect(shown).not.toContain("No usage recorded yet");
+    expect(shown).toContain("此机器人尚未记录任何用量。");
   });
 });

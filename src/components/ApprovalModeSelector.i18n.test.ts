@@ -1,7 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 
 import { setLocale, t } from "@/lib/i18n";
-import { locales } from "@/locales";
+import { locales, loadLocalePack } from "@/locales";
 import { approvalModeOptions } from "./ApprovalModeSelector";
 
 const PACKS = Object.keys(locales).filter((code) => code !== "pt");
@@ -23,17 +23,18 @@ describe("held notes name the buttons the selector shows", () => {
     }
   });
 
-  it("resolves the labels when they are read, not when the module loads", () => {
-    setLocale("pt-br");
+  it("resolves the labels when they are read, not when the module loads", async () => {
+    setLocale("en");
     expect(approvalModeOptions().map((option) => option.label)).toEqual([
-      "Pedir aprovação",
-      "Aceitar edições automaticamente",
-      "Aprovar por mim",
-      "Acesso total",
-      "Personalizado (config.toml)",
+      "Ask for approval",
+      "Auto-accept edits",
+      "Approve for me",
+      "Full access",
+      "Custom (config.toml)",
     ]);
 
-    setLocale("ja");
-    expect(approvalModeOptions()[2].label).toBe("自動で承認");
+    await loadLocalePack("zh");
+    setLocale("zh");
+    expect(approvalModeOptions()[2].label).toBe("代我批准");
   });
 });

@@ -64,7 +64,7 @@ async function proxyFor(start: () => Promise<void>) {
   await start();
   let agents: { command: string; args: string[]; env: Record<string, string> } | undefined;
   await expect.poll(() => {
-    try { agents = JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.agents; return true; } catch { return false; }
+    try { agents = JSON.parse(readFileSync(`${dump}.mcp.json`, "utf8")).find((server: any) => server?.name === "agents"); return Boolean(agents); } catch { return false; }
   }, { timeout: 15_000 }).toBe(true);
   const proxy = spawn(agents!.command, agents!.args, { env: { PATH: process.env.PATH, HOME: home, ...agents!.env }, stdio: ["pipe", "pipe", "pipe"] });
   proxies.push(proxy);
@@ -90,16 +90,15 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "omb-secret-requests-"));
   const dataDir = join(home, ".openmausbot");
   mkdirSync(dataDir, { recursive: true });
-  const cli = join(home, "fixture-claude.mjs");
+  const cli = join(home, "fixture-acp.mjs");
   writeFileSync(cli, `#!/usr/bin/env node
-if (process.argv[2] === "auth") { console.log(JSON.stringify({ loggedIn: true, email: "person@example.test" })); process.exit(0); }
-process.env.FAKE_CLAUDE_VERSION = "2.1.284";
-if (process.argv[2] !== "--version") { process.env.FAKE_CLAUDE_DUMP = ${JSON.stringify(join(home, "spawn.json"))}; process.env.FAKE_CLAUDE_MODE = "hang"; }
-await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-claude-cli.ts")).href)});
+process.env.FAKE_ACP_MODE = "hang";
+if (process.argv[2] !== "--version") { process.env.FAKE_ACP_DUMP = ${JSON.stringify(join(home, "spawn.json"))}; }
+await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-acp-cli.ts")).href)});
 `, { mode: 0o755 });
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({ instances: {
     ...Object.fromEntries(["codex", "cursor", "githubCopilot", "openaiCompat", "qwen", "hermes", "pi", "grok"].map((id) => [id, { driver: "not-a-real-driver" }])),
-    claude: { driver: "claudeAgent", displayName: "Claude", config: { cli } },
+    claude: { driver: "deepseekAgent", displayName: "DeepSeek", config: { cli }, environment: { FAKE_ACP_MODELS: "fake-model" } },
   } }));
   const port = await freePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
@@ -146,7 +145,7 @@ function filesHolding(root: string, needle: string): string[] {
 }
 
 it("keeps a file secret and a ref secret out of every record, and the bot uses each once", async () => {
-  const bot = (await api("POST", "/api/bots", { name: "Ledger", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).body.bot;
+  const bot = (await api("POST", "/api/bots", { name: "Ledger", modelSelection: { instanceId: "claude", model: "fake-model" } })).body.bot;
   const tools = await proxyFor(async () => {
     expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Set up Stripe test charges and Notion's MCP." })).status).toBe(202);
   });

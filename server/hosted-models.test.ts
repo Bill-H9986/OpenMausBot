@@ -1,13 +1,11 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { hostedModelPolicy } from "./hosted-models.ts";
 import { ProviderRegistry } from "./harness/registry.ts";
-import { ClaudeDriver } from "./drivers/claude.ts";
-import { CodexDriver } from "./drivers/codex.ts";
+import { makeFakeDriver } from "./testing/fake-driver.ts";
 import { OpenAICompatDriver } from "./drivers/openai-compat.ts";
-import { recordEvents } from "./testing/events.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
 const directories: string[] = [], registries: ProviderRegistry[] = [];
@@ -55,7 +53,7 @@ it.each([{ variant: "high" }, { effort: "high" as const }])("preserves an assign
 
 it("locks native and OpenRouter instances to assigned catalogs and fixed gateway routes", async () => {
   const root = directory(), policy = hostedModelPolicy(root, { ...env(),
-    OMB_HOSTED_CLAUDE_CLI: join(import.meta.dirname, "testing/fake-claude-cli.ts"),
+    OMB_HOSTED_CLAUDE_CLI: join(import.meta.dirname, "testing/fake-acp-cli.ts"),
     OMB_HOSTED_CODEX_CLI: join(import.meta.dirname, "testing/fake-codex-app-server.ts"),
   })!;
   const configs = policy.configs();
@@ -64,7 +62,7 @@ it("locks native and OpenRouter instances to assigned catalogs and fixed gateway
   expect(configs.codex.environment).toEqual({ OPENMAUSBOT_COMPANY_API_KEY: token, CODEX_HOME: join(root, "providers/hosted/codex") });
   expect(configs.codex.config).toMatchObject({ managed: { models: ["gpt-fixture"], url: "https://admin.example.test/api/gateway/fixture/openai/v1" } });
   const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
-  const registry = new ProviderRegistry([ClaudeDriver, CodexDriver, OpenAICompatDriver], { npmAvailable: () => false }); registries.push(registry);
+  const registry = new ProviderRegistry([makeFakeDriver({ kind: "claudeAgent" }).driver, makeFakeDriver({ kind: "codex" }).driver, OpenAICompatDriver], { npmAvailable: () => false }); registries.push(registry);
   await registry.load(configs, instance => policy.decorate(instance));
   for (const [id, model] of [["claude", "claude-fixture"], ["codex", "gpt-fixture"], ["opencode", "provider/fixture"]]) {
     const instance = registry.get(id)!;
@@ -83,20 +81,3 @@ it("uses bundled executable names unless the operator explicitly overrides them"
   expect(Object.keys(configs)).toEqual(["claude", "codex", "opencode"]);
 });
 
-it("sends a hosted Claude turn and helper through the approved model with synthetic CLI only", async () => {
-  const root = directory(), policy = hostedModelPolicy(root, { ...env(), OMB_HOSTED_CLAUDE_CLI: join(import.meta.dirname, "testing/fake-claude-cli.ts") })!;
-  const configs = policy.configs();
-  const dump = join(root, "claude-spawn.json");
-  configs.claude.environment!.FAKE_CLAUDE_DUMP = dump;
-  const registry = new ProviderRegistry([ClaudeDriver], { npmAvailable: () => false }); registries.push(registry);
-  await registry.load({ claude: configs.claude }, instance => policy.decorate(instance));
-  const claude = registry.get("claude")!, events = recordEvents(claude.adapter);
-  await claude.adapter.sendTurn({ threadId: "hosted-fixture", text: "Synthetic turn", model: "claude-fixture", cwd: root });
-  await events.until(event => event.type === "turn.completed"); events.stop();
-  let spawned = JSON.parse(readFileSync(dump, "utf8"));
-  expect(spawned.argv[spawned.argv.indexOf("--model") + 1]).toBe("claude-fixture");
-  expect(spawned.env.ANTHROPIC_BASE_URL).toBe("https://admin.example.test/api/gateway/fixture/anthropic");
-  await claude.generateText!("Synthetic title");
-  spawned = JSON.parse(readFileSync(dump, "utf8"));
-  expect(spawned.argv[spawned.argv.indexOf("--model") + 1]).toBe("claude-fixture");
-});

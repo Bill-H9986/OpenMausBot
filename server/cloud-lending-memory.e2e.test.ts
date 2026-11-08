@@ -30,6 +30,18 @@ let connector: ReturnType<typeof createComputerSharing> | undefined;
 let lentId = "";
 let folderId = "";
 const proxies: ChildProcess[] = [];
+// Planting a link in the bot's workspace needs the OS to permit symlinks; without that the test cannot hold.
+const symlinkAvailable = (() => {
+  try {
+    const probe = mkdtempSync(join(tmpdir(), "omb-symprobe-"));
+    writeFileSync(join(probe, "a"), "x");
+    symlinkSync(join(probe, "a"), join(probe, "b"));
+    rmSync(probe, { recursive: true, force: true });
+    return true;
+  } catch { return false; }
+})();
+
+
 
 async function api(method: string, path: string, options: { body?: unknown; token?: string } = {}) {
   const response = await fetch(`${base}${path}`, {
@@ -425,7 +437,7 @@ it("a process on the Cloud cannot write in the owner's running conversation, and
   await stop(bot, receipt.receipts![0]!.threadId!);
 }, 60_000);
 
-it("a link planted in a bot's memory is a change, and what it points at never reaches a turn", async () => {
+it.skipIf(!symlinkAvailable)("a link planted in a bot's memory is a change, and what it points at never reaches a turn", async () => {
   const bot = await newBot("Linked", "held");
   await review(bot);
   const target = join(home, "guest-controlled.md");

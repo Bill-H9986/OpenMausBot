@@ -9,8 +9,6 @@ import { t } from "@/lib/i18n";
 import { importOutcome, localSetupImport, setupImportApi, skillsSummary, toolsSummary, type SetupImportClient } from "@/lib/setup-import";
 import { useStore } from "@/state/store";
 import { detectionCount, detectionSources, type SetupDetection, type SetupImportResult, type SetupSource } from "../../shared/setup-import";
-import { GrokBotMark } from "./GrokBotMark";
-import { GrokMoveDialog } from "./lazy-screens";
 import { ClaudeMark, CodexMark, CursorMark, PresetProviderMark } from "./ProviderIcons";
 
 function SourceMarks({ sources }: { sources: readonly SetupSource[] }) {
@@ -160,24 +158,7 @@ function AiAppsImport({ client, local }: { client: SetupImportClient; local: boo
   return <AiAppsImportView local={local} detection={detection} chosen={chosen} status={status} result={result} onChoose={setChosen} onBring={() => void bring()} />;
 }
 
-export function GrokImportSection() {
-  const [open, setOpen] = useState(false);
-  return (
-    <section data-import-section="grok" className="rounded-xl bg-card p-4">
-      <div className="flex items-center gap-2 text-[15px] font-medium text-ink"><GrokBotMark size={16} />{t("settings.import.grokTitle")}</div>
-      <div className="mt-0.5 text-[13px] leading-relaxed text-ink-secondary">{t("settings.import.grokSubtitle")}</div>
-      <button type="button" data-grok-move-open onClick={() => setOpen(true)} className={cn(buttonClass, "mt-3")}>{t("settings.import.grokTitle")}</button>
-      {open && <GrokMoveDialog onClose={() => setOpen(false)} />}
-    </section>
-  );
-}
-
 export function ImportSettings({ client = setupImportApi }: { client?: SetupImportClient }) {
   const { state } = useStore();
-  return (
-    <div className="flex flex-col gap-4">
-      <AiAppsImport client={client} local={localSetupImport(state.config?.cloudHome === true)} />
-      <GrokImportSection />
-    </div>
-  );
+  return <AiAppsImport client={client} local={localSetupImport(state.config?.cloudHome === true)} />;
 }
