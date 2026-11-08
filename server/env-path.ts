@@ -330,7 +330,7 @@ function cmdExecLineArgs(text: string, dir: string): string[] {
     if (!tokens.includes("%*")) continue;
     const args: string[] = [];
     for (const token of tokens.slice(1)) {
-      if (token === "%*" || /\%[A-Za-z_][A-Za-z0-9_]*\%/.test(token)) continue;
+      if (token === "%*" || /%[A-Za-z_][A-Za-z0-9_]*%/.test(token)) continue;
       const dp0 = /^%~?dp0%?\\?/i.exec(token);
       args.push(dp0 ? join(dir, token.slice(dp0[0].length)) : token);
     }
@@ -362,7 +362,7 @@ function cmdSetPreamble(text: string, dir: string): Record<string, string> {
     // A `%`-bearing value is the batch's own expansion pipe (`SET dp0=%~dp0`, `%~dp0\…`):
     // its target already flattened to a real path, and the remainder is meaningless to the
     // child. Only a literal value is the state a spawn must inherit (ELECTRON_RUN_AS_NODE=1).
-    if (/\%/.test(value)) continue;
+    if (/%/.test(value)) continue;
     const dp0 = /^%~?dp0%?[\\/]/i.exec(value);
     if (dp0) value = join(dir, value.slice(dp0[0].length));
     out[name] = value;

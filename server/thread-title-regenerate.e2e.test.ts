@@ -13,7 +13,6 @@ import { freePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
-const FAKE_ACP = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
 
 let child: ChildProcess;
 let home = "";
