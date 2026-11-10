@@ -1,5 +1,5 @@
 appId: com.openmausbot.app
-productName: Jarvis Bot
+productName: OpenMausBot
 artifactName: OpenMausBot-${version}-${arch}.${ext}
 
 protocols:
@@ -203,7 +203,7 @@ win:
 nsis:
   oneClick: true
   perMachine: false
-  shortcutName: Jarvis Bot
+  shortcutName: OpenMausBot
   # Versioned, like the .dmg. The README's /latest/download/ button needs a
   # STABLE filename, so ship a second copy named OpenMausBot-setup.exe on the
   # release — the same trick as OpenMausBot.dmg beside OpenMausBot-${version}.dmg.

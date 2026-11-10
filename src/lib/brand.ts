@@ -16,7 +16,7 @@ export interface BrandStatus {
 
 export const DEFAULT_BRAND: Brand = { name: "OpenMausBot" };
 /** The product's name wherever a person reads it. OpenMausBot names only the open-source project and its repository. */
-export const PRODUCT_NAME = "Jarvis Bot";
+export const PRODUCT_NAME = "MausBot";
 
 let current: BrandStatus = { brand: DEFAULT_BRAND, source: "default", file: "" };
 

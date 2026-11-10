@@ -13,11 +13,11 @@ export function createSystemTray({ Tray, Menu, nativeImage, iconPath, getWindow,
     win.focus();
     return true;
   };
-  tray.setToolTip("Jarvis Bot");
+  tray.setToolTip("OpenMaus Bot");
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "Open Jarvis Bot", click: show },
+    { label: "Open OpenMaus Bot", click: show },
     { type: "separator" },
-    { label: "Quit Jarvis Bot", click: onQuit },
+    { label: "Quit OpenMaus Bot", click: onQuit },
   ]));
   tray.on("click", show);
   tray.on("double-click", show);
