@@ -91,8 +91,6 @@ export function deciderFailureText(result: { reason: string; status?: number }, 
   return key ? t(key) : t("decider.error.other");
 }
 
-const COMING_SOON: LocaleKey[] = ["decider.jobs.browserClicks", "decider.jobs.toolSelection", "decider.jobs.placement"];
-
 export function DecisionModelSettings() {
   const { state, dispatch } = useStore();
   const decider = state.config?.decider;
@@ -357,14 +355,6 @@ export function DecisionModelSettings() {
               className="cursor-pointer"
             />
           </li>
-          {COMING_SOON.map((label) => (
-            <li key={label} data-testid="decider-coming-soon" aria-disabled="true" className="flex items-center justify-between gap-4 border-t border-hairline/40 py-2 opacity-50">
-              <span className="text-[13px] text-ink-secondary">{t(label)}</span>
-              <span className="rounded bg-control px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-secondary">
-                {t("decider.jobs.comingSoon")}
-              </span>
-            </li>
-          ))}
         </ul>
       </Card>
     </>

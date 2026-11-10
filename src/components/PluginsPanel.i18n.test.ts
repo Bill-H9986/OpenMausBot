@@ -19,14 +19,13 @@ afterEach(() => {
 });
 
 describe("plugins modal translation", () => {
-  it("translates the domestic plugin cards in every loaded pack", () => {
+  it("translates the panel header and its MCP section in every loaded pack", () => {
     for (const [code, pack] of Object.entries(locales)) {
       setLocale(code);
       const html = renderToStaticMarkup(createElement(() => PluginsPanel()));
-      expect(html, code).toContain(pack["apps.plugins.feishu.name"]);
-      expect(html, code).toContain(pack["apps.plugins.wecom.name"]);
-      expect(html, code).toContain(pack["apps.plugins.localdb.name"]);
-      expect(html, code).toContain(pack["apps.plugins.comingSoon"]);
+      expect(html, code).toContain(pack["apps.title"]);
+      expect(html, code).toContain(pack["apps.subtitle"]);
+      expect(html, code).toContain(pack["mcp.title"]);
     }
   });
 
