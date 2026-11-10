@@ -13,7 +13,7 @@ import { AccountsCard, accountGroupOf, accountsReady, type AccountGroup } from "
 import { DEVICE_SIGN_IN_COPY, deviceSignInProvider } from "./DeviceSignIn";
 import { CacheKeepWarmSettings } from "./CacheKeepWarmSettings";
 import { Select } from "./Select";
-import { SettingsGroup, SettingsRows } from "./SettingsPrimitives";
+import { SettingsDisclosureRow, SettingsGroup, SettingsRows } from "./SettingsPrimitives";
 import { InstanceProviderMark } from "./ProviderIcons";
 
 interface ProbeResult {
@@ -359,16 +359,20 @@ function simpleStatus(instance: InstanceInfo, ready: boolean): string {
   return instance.snapshot.state === "available" && instance.snapshot.authenticated === false ? t("model.signInRequired") : t("onboarding.engines.needsSetup");
 }
 
-function SimpleEngines({ rows, isReady, renderEngine }: {
+function SimpleEngines({ rows, isReady, renderEngine, more }: {
   rows: InstanceInfo[];
   isReady: (instance: InstanceInfo) => boolean;
   renderEngine: (instance: InstanceInfo, bare?: boolean) => ReactNode;
+  more: { id: string; open: boolean; onToggle: () => void };
 }) {
   const [opened, setOpened] = useState<string | null>(null);
+  const featured = rows.filter((instance) => isReady(instance) || instance.authentication !== undefined);
+  const others = rows.filter((instance) => !featured.includes(instance));
   return (
+    <>
       <SettingsGroup label={t("settings.simple.ai.yours")} actions={<RefreshEngines />}>
         <SettingsRows>
-          {rows.map((instance) => {
+          {featured.map((instance) => {
             const ready = isReady(instance), open = opened === instance.instanceId;
             return (
               <div key={instance.instanceId} data-simple-engine={instance.instanceId} className="group">
@@ -390,6 +394,20 @@ function SimpleEngines({ rows, isReady, renderEngine }: {
           })}
         </SettingsRows>
       </SettingsGroup>
+      {others.length > 0 && (
+        <SettingsDisclosureRow
+          title={t("settings.simple.ai.more", { count: String(others.length) })}
+          trailing={<span aria-hidden="true" className="flex items-center -space-x-1">
+            {others.slice(0, 4).map((instance) => (
+              <span key={instance.instanceId} className="flex size-[18px] items-center justify-center rounded-full bg-menu"><InstanceProviderMark instance={instance} size={14} subtle /></span>
+            ))}
+          </span>}
+          {...more}
+        >
+          <EngineSections instances={others} isReady={isReady} renderEngine={(instance) => renderEngine(instance)} />
+        </SettingsDisclosureRow>
+      )}
+    </>
   );
 }
 
@@ -436,7 +454,7 @@ export function HiddenEngines() {
   );
 }
 
-export function EnginesSettings({ simple = false }: { simple?: boolean }) {
+export function EnginesSettings({ simple = false, more }: { simple?: boolean; more?: { id: string; open: boolean; onToggle: () => void } }) {
   const { state } = useStore();
   // Leaving Settings ends the "now uses the copy OpenMausBot installed" lines.
   useEffect(() => forgetAppCopySwitches, []);
@@ -460,7 +478,7 @@ export function EnginesSettings({ simple = false }: { simple?: boolean }) {
       : <EngineRow instance={instance} bare={bare} />;
   };
 
-  if (simple) return <SimpleEngines rows={rows} isReady={isReady} renderEngine={renderEngine} />;
+  if (simple && more) return <SimpleEngines rows={rows} isReady={isReady} renderEngine={renderEngine} more={more} />;
 
   return (
     <div className="flex min-w-0 flex-col gap-6 pb-2">
