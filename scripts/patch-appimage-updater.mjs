@@ -29,11 +29,14 @@ const ATOMIC_MOVE = [
 // BaseUpdater starts doInstall before it asks Electron to quit, so an immediate
 // spawn can reach the data-directory lease while the old desktop is still
 // cleaning up. Electron's relauncher waits for this process to exit instead.
-const IMMEDIATE_RELAUNCH = /this\.spawnLog\(destination, \[\], env\);/g;
-const QUEUED_RELAUNCH = [
+// esbuild renames the local that holds the relaunch env per build (env, env2,
+// …), so capture the identifier and reference the captured one in the patch —
+// pinning `env` broke as soon as a re-link produced a different local name.
+const IMMEDIATE_RELAUNCH = /this\.spawnLog\(destination, \[\], (\w+)\);/g;
+const QUEUED_RELAUNCH = (envIdentifier) => [
   'const previousSilentInstall = process.env.APPIMAGE_SILENT_INSTALL;',
   'try {',
-  '  process.env.APPIMAGE_SILENT_INSTALL = env.APPIMAGE_SILENT_INSTALL;',
+  `  process.env.APPIMAGE_SILENT_INSTALL = ${envIdentifier}.APPIMAGE_SILENT_INSTALL;`,
   '  if (require("electron").app.relaunch({ execPath: destination, args: [] }) === false) {',
   '    throw new Error("Could not schedule the updated AppImage to restart");',
   '  }',
@@ -47,7 +50,7 @@ const REPLACEMENTS = [
   ["rename branch", RENAME_ASSIGNMENT, IN_PLACE_ASSIGNMENT],
   ["unlink before install", UNLINK_BEFORE_INSTALL, ""],
   ["move into place", MOVE_INTO_PLACE, ATOMIC_MOVE],
-  ["immediate relaunch", IMMEDIATE_RELAUNCH, QUEUED_RELAUNCH],
+  ["immediate relaunch", IMMEDIATE_RELAUNCH, (_match, envIdentifier) => QUEUED_RELAUNCH(envIdentifier)],
 ];
 
 /**

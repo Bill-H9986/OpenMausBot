@@ -1,6 +1,6 @@
 // OpenMausBot's self-hosted OpenAI-compatible endpoint for dsh: written as the
 // llm-pi-ai provider block of the active profile's legacy settings.yaml. dsh
-// 0.2.1-rc.5 imports that file into the active profile on launch and renames
+// 0.2.2-rc.1 imports that file into the active profile on launch and renames
 // it, so the write happens before every dsh spawn and re-writes the file when
 // the config changes. The provider block names the key only by env var
 // (apiKeyEnv); the key's value rides in the child process env and never in
@@ -19,7 +19,7 @@ export interface CustomOpenAIProviderSpec {
   models?: string[];
 }
 
-/** The llm-pi-ai provider block dsh 0.2.1 expects: the OpenAI completions api
+/** The llm-pi-ai provider block dsh 0.2.2 expects: the OpenAI completions api
  * and its plain-OpenAI compat flags, the baseURL, and the credential ref by
  * name; `models` entries are `{ id }` objects whose caps fall back to the
  * route defaults. */

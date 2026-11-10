@@ -1,7 +1,7 @@
 // DeepSeek Harness support — DeepSeek's `dsh` (github.com/deepseek-ai/deepseek-harness)
 // over ACP stdio (`dsh --profile acp`). The generic protocol runtime lives in
 // acp/core.ts; this file is only the per-harness quirks. Verified against
-// @deepseek-ai/dsh 0.2.1-rc.2 on 2026-10-22:
+// @deepseek-ai/dsh 0.2.2-rc.1:
 //
 //   - initialize answers protocolVersion 1, authMethods [] (no sign-in step:
 //     the DeepSeek key is read from DEEPSEEK_API_KEY or dsh's own
@@ -11,10 +11,10 @@
 //   - The DeepSeek adapter takes its endpoint from $DEEPSEEK_BASE_URL, an
 //     Anthropic Messages-compatible API (default https://api.deepseek.com/anthropic);
 //     the config's baseUrl reaches it that way, so OpenMausBot passes it through
-//     the launch environment. Verified in 0.2.1-rc.5.
+//     the launch environment. Verified in 0.2.2-rc.1.
 //   - BYOM OpenAI-compatible endpoints ride a different route: the custom
 //     OpenAI provider block (llm-pi-ai.providers) of the active profile's
-//     legacy settings.yaml, which dsh 0.2.1-rc.5 imports into the profile on
+//     legacy settings.yaml, which dsh 0.2.2-rc.1 imports into the profile on
 //     launch and renames. OpenMausBot rewrites that file before every spawn
 //     (deepseek-settings.ts); its apiKeyEnv names the key's env var, never
 //     the key's value.
@@ -210,7 +210,7 @@ export function bundledDshEntry(): string | null {
   return existsSync(entry) ? entry : null;
 }
 
-/** The launch environment a dsh child gets: dsh 0.2.1-rc.5 reads
+/** The launch environment a dsh child gets: dsh 0.2.2-rc.1 reads
  * process.env.DSH_TELEMETRY_DISABLED at profile boot (any non-empty value
  * disables OTel session telemetry), and loopback must never ride a proxy,
  * so NO_PROXY/no_proxy are made to cover 127.0.0.1 and localhost while the
