@@ -130,6 +130,34 @@ export function hasDeepSeekKey(env: Record<string, string | undefined>): boolean
   return storedCredentialPresent(join(home, ".credentials.yaml")) || dotenvValuePresent(join(home, ".env"));
 }
 
+/** dsh imports the home-level legacy settings.yaml on launch; a provider block
+ * carrying a `baseURL` is a self-hosted or gateway endpoint, a model route the
+ * harness can serve without a DeepSeek key. */
+function gatewayProviderConfigured(settingsPath: string): boolean {
+  let doc: unknown;
+  try {
+    doc = parseYaml(readFileSync(settingsPath, "utf8"));
+  } catch {
+    return false;
+  }
+  const root = (doc && typeof doc === "object" ? doc : {}) as Record<string, unknown>;
+  const llm = root["llm-pi-ai"] && typeof root["llm-pi-ai"] === "object" ? (root["llm-pi-ai"] as Record<string, unknown>) : {};
+  const providers = llm.providers && typeof llm.providers === "object" ? (llm.providers as Record<string, unknown>) : {};
+  return Object.values(providers).some((block) => {
+    const p = (block && typeof block === "object" ? block : {}) as Record<string, unknown>;
+    return typeof p.baseURL === "string" && p.baseURL.trim() !== "";
+  });
+}
+
+/** A usable credential for the DSH harness: a DeepSeek key in any layer, or a
+ * self-hosted/gateway provider endpoint configured in dsh's own home settings —
+ * the badge must not demand a DeepSeek key when the operator routes through a
+ * local gateway. */
+export function dshCredentialPresent(env: Record<string, string | undefined>): boolean {
+  if (hasDeepSeekKey(env)) return true;
+  return gatewayProviderConfigured(join(dshHome(env), "settings.yaml"));
+}
+
 /** Every `value` string under a select option, descending into groups. */
 function offeredWireValues(sessionConfig: unknown, configId: string): { values: string[]; current: string | null } {
   const options = (sessionConfig as { configOptions?: unknown[] } | undefined)?.configOptions;
@@ -359,7 +387,7 @@ export const deepseekSupport: AcpSupport = {
   models: DEEPSEEK_MODELS,
   defaultCli: "dsh",
   nativeSource: "deepseek.acp",
-  loginNote: "DeepSeek Harness has no DeepSeek API key — paste one under Settings → Connections → Model providers, or set DEEPSEEK_API_KEY",
+  loginNote: "DeepSeek Harness has no usable credential — configure a self-hosted or gateway endpoint under dsh's settings, paste a DeepSeek key, or set DEEPSEEK_API_KEY",
 
   install: {
     command: {
@@ -398,7 +426,7 @@ export const deepseekSupport: AcpSupport = {
       });
     });
     if (!probed.version) return { state: "unavailable", reason: probed.reason };
-    return { state: "available", version: probed.version, authenticated: hasDeepSeekKey(env) };
+    return { state: "available", version: probed.version, authenticated: dshCredentialPresent(env) };
   },
   credentialEnv: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", CUSTOM_OPENAI_API_KEY_ENV, "DSH_TELEMETRY_DISABLED"],
   // Model and reasoning effort are session config options (see header).
@@ -416,7 +444,7 @@ export const deepseekSupport: AcpSupport = {
   // dsh's own credential file, so there is nothing to call authenticate for.
   pickAuthMethod: () => null,
   authFailure: "continue",
-  isAuthenticated: (env) => hasDeepSeekKey(env),
+  isAuthenticated: (env) => dshCredentialPresent(env),
 
   resolveTurnModel: (model) => (model ? deepseekWireValue(model) : model),
   fallbackModel: (sessionConfig, catalogDefault) => {

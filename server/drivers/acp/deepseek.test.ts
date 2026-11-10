@@ -19,6 +19,7 @@ import {
   dshChildEnv,
   fetchDeepSeekCatalog,
   hasDeepSeekKey,
+  dshCredentialPresent,
   parseDeepSeekCatalog,
 } from "./deepseek.ts";
 
@@ -146,6 +147,42 @@ describe("DeepSeek key detection", () => {
     const h = home();
     mkdirSync(join(h, "profiles"), { recursive: true });
     expect(hasDeepSeekKey({ DSH_HOME: h })).toBe(false);
+  });
+});
+
+describe("dsh credential detection (key or gateway)", () => {
+  const dirs: string[] = [];
+  afterEach(async () => {
+    for (const d of dirs.splice(0)) await removeTempDir(d);
+  });
+  const home = () => {
+    const d = mkdtempSync(join(tmpdir(), "omb-dsh-"));
+    dirs.push(d);
+    return d;
+  };
+
+  it("counts a DeepSeek key as a usable credential", () => {
+    expect(dshCredentialPresent({ DEEPSEEK_API_KEY: "sk-x", DSH_HOME: home() })).toBe(true);
+  });
+
+  it("counts a self-hosted/gateway provider endpoint as a usable credential without a key", () => {
+    const h = home();
+    writeFileSync(join(h, "settings.yaml"),
+      "llm-pi-ai:\n  providers:\n    magpie:\n      apiKeyEnv: MAGPIE_GATEWAY_KEY\n      api: openai-completions\n      baseURL: http://127.0.0.1:3425/v1\n      models:\n        - id: group/never-stuck\n");
+    expect(hasDeepSeekKey({ DSH_HOME: h })).toBe(false);
+    expect(dshCredentialPresent({ DSH_HOME: h })).toBe(true);
+  });
+
+  it("does not count a provider block with no endpoint", () => {
+    const h = home();
+    writeFileSync(join(h, "settings.yaml"), "llm-pi-ai:\n  providers:\n    magpie:\n      apiKeyEnv: MAGPIE_GATEWAY_KEY\n");
+    expect(dshCredentialPresent({ DSH_HOME: h })).toBe(false);
+  });
+
+  it("stays unauthenticated with no key and no gateway", () => {
+    const h = home();
+    mkdirSync(join(h, "profiles"), { recursive: true });
+    expect(dshCredentialPresent({ DSH_HOME: h })).toBe(false);
   });
 });
 
