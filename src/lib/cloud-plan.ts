@@ -250,20 +250,6 @@ export function dueToday(cents: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(cents / 100);
 }
 
-
-export function cloudIntroView(offer: CloudOffer | null | undefined): { badge: string; points: string[]; price: string; moneyBack: string | null } | null {
-  const days = offerTrialDays(offer);
-  if (!offer || !days) return null;
-  const cheapest = Math.min(...offer.plans.filter(plan => plan.trialDays).map(plan => plan.amount));
-  return {
-    badge: t("cloudIntro.badge", { days }),
-    points: [t("cloudIntro.routines"), t("cloudIntro.phone"), offer.creditUsd ? t("cloudIntro.credit", { credit: usd(offer.creditUsd) }) : t("cloudIntro.included")],
-    price: t("cloudIntro.price", { price: usd(cheapest / 100) }),
-    moneyBack: moneyBackLine(offer),
-  };
-}
-
-
 export const CHECKOUT_WAIT_MS = 30 * 60_000;
 
 /** The in-app sign-in's step, kept by the sheet: where it is and what the Admin last said, never a code or token. */
